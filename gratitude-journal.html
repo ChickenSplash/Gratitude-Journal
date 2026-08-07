@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en-GB" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Gratitude Journal</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Lora:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+
+<style>
+  /* ── Theme tokens ─────────────────────────────────────────────── */
+  :root {
+    --bg:            #FFF8F5;
+    --card:          #FFFFFF;
+    --text:          #2D2520;
+    --text-muted:    #6B5B52;
+    --border:        #F4DDD1;
+    --accent:        #FF8C61;
+    --accent-hover:  #FF7647;
+    --accent-soft:   rgba(255, 140, 97, 0.09);
+    --input-bg:      #FFFBF8;
+    --shadow:        rgba(255, 140, 97, 0.08);
+    --danger:        #C4442E;
+
+    --font-body:     'DM Sans', system-ui, sans-serif;
+    --font-display:  'Lora', Georgia, serif;
+    --radius:        12px;
+    --radius-lg:     16px;
+  }
+
+  [data-theme="dark"] {
+    --bg:            #1A1614;
+    --card:          #241F1C;
+    --text:          #F5EDE7;
+    --text-muted:    #B8A99E;
+    --border:        #3D3430;
+    --accent:        #FF8C61;
+    --accent-hover:  #FFA47F;
+    --accent-soft:   rgba(255, 140, 97, 0.13);
+    --input-bg:      #2D2722;
+    --shadow:        rgba(0, 0, 0, 0.32);
+    --danger:        #FF8B75;
+  }
+
+  /* ── Base ─────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.5;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* ── Layout ───────────────────────────────────────────────────── */
+  .shell {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 40px 20px 60px;
+  }
+
+  .topbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+  }
+
+  .masthead { text-align: center; margin-bottom: 44px; }
+
+  .masthead h1 {
+    margin: 0 0 8px;
+    font-size: clamp(32px, 5vw, 42px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .masthead p {
+    margin: 0;
+    font-family: var(--font-display);
+    font-style: italic;
+    color: var(--text-muted);
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: clamp(24px, 5vw, 40px);
+    box-shadow: 0 2px 16px var(--shadow);
+    transition: background-color 0.3s ease;
+  }
+
+  /* ── Form ─────────────────────────────────────────────────────── */
+  .field + .field { margin-top: 24px; }
+
+  .field label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .field textarea {
+    display: block;
+    width: 100%;
+    min-height: 80px;
+    padding: 14px 16px;
+    font: inherit;
+    color: var(--text);
+    background: var(--input-bg);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    resize: vertical;
+    transition: border-color 0.2s ease, background-color 0.3s ease;
+  }
+
+  .field textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .field textarea::placeholder { color: var(--text-muted); opacity: 0.7; }
+
+  .hint {
+    margin: 20px 0 0;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  kbd {
+    font: inherit;
+    font-size: 12px;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--input-bg);
+  }
+
+  /* ── Buttons ──────────────────────────────────────────────────── */
+  .btn {
+    font: inherit;
+    font-weight: 600;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+  }
+
+  .btn-primary {
+    display: block;
+    width: 100%;
+    margin-top: 28px;
+    padding: 16px;
+    color: #fff;
+    background: var(--accent);
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .btn-quiet {
+    padding: 8px 14px;
+    font-weight: 500;
+    font-size: 15px;
+    color: var(--accent);
+    background: transparent;
+    border-radius: 8px;
+  }
+  .btn-quiet:hover { background: var(--accent-soft); }
+
+  .btn-icon {
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: transparent;
+    border-radius: 8px;
+  }
+  .btn-icon:hover { background: var(--accent-soft); color: var(--text); }
+
+  .btn-danger { color: var(--danger); }
+
+  /* ── Toast ────────────────────────────────────────────────────── */
+  .toast {
+    margin-bottom: 24px;
+    padding: 16px;
+    text-align: center;
+    font-weight: 500;
+    color: var(--accent);
+    background: var(--card);
+    border: 2px solid var(--accent);
+    border-radius: var(--radius);
+    animation: rise 0.3s ease;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── History ──────────────────────────────────────────────────── */
+  .history-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 28px;
+  }
+
+  .history h2 {
+    margin: 32px 0 20px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .entry {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 8px var(--shadow);
+    transition: background-color 0.3s ease;
+  }
+
+  .entry header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .entry time {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+
+  .entry ol {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text);
+  }
+
+  .entry li + li { margin-top: 10px; }
+
+  .entry li::marker { color: var(--text-muted); font-size: 14px; }
+
+  .confirm { display: flex; gap: 2px; align-items: center; }
+  .confirm span { font-size: 13px; color: var(--text-muted); margin-right: 4px; }
+
+  .empty {
+    margin-top: 28px;
+    text-align: center;
+    font-family: var(--font-display);
+    font-style: italic;
+    color: var(--text-muted);
+  }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+</style>
+</head>
+
+<body>
+<div id="root"></div>
+
+<!-- Production React builds. Babel is here only so the JSX below runs without a
+     build step — see the note at the bottom of this file for removing it. -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ─── Storage ──────────────────────────────────────────────────────
+   localStorage can throw: disabled cookies, private browsing, quota.
+   Falling back to memory keeps the app usable for the session rather
+   than crashing on mount.                                            */
+const storage = (() => {
+  let backing = null;
+  try {
+    const probe = '__probe__';
+    window.localStorage.setItem(probe, probe);
+    window.localStorage.removeItem(probe);
+    backing = window.localStorage;
+  } catch {
+    backing = null;
+  }
+
+  const memory = new Map();
+
+  return {
+    persistent: backing !== null,
+    get(key) {
+      try {
+        return backing ? backing.getItem(key) : memory.get(key) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    set(key, value) {
+      try {
+        if (backing) backing.setItem(key, value);
+        else memory.set(key, value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+})();
+
+const ENTRIES_KEY = 'gratitudeEntries';
+const THEME_KEY = 'gratitudeTheme';
+const SLOTS = 3;
+
+/* ─── Helpers ──────────────────────────────────────────────────── */
+const newId = () =>
+  window.crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+/** Migrates and validates whatever is in storage. Anything malformed is
+ *  dropped rather than allowed to crash the render. */
+function loadEntries() {
+  const raw = storage.get(ENTRIES_KEY);
+  if (!raw) return [];
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .filter(e => e && typeof e === 'object' && Array.isArray(e.items))
+    .map(e => ({
+      id: String(e.id ?? newId()),
+      date: typeof e.date === 'string' ? e.date : new Date().toISOString(),
+      items: e.items.filter(i => typeof i === 'string' && i.trim() !== ''),
+    }))
+    .filter(e => e.items.length > 0);
+}
+
+const dateFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric', month: 'short', year: 'numeric',
+});
+const sameDayFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric', month: 'short',
+});
+
+function formatDate(isoString) {
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return 'Unknown date';
+
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+  return date.getFullYear() === today.getFullYear()
+    ? sameDayFormatter.format(date)
+    : dateFormatter.format(date);
+}
+
+/* ─── Theme ────────────────────────────────────────────────────── */
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    const stored = storage.get(THEME_KEY);
+    if (stored === 'light' || stored === 'dark') return stored;
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    storage.set(THEME_KEY, theme);
+  }, [theme]);
+
+  const toggle = useCallback(
+    () => setTheme(t => (t === 'dark' ? 'light' : 'dark')),
+    []
+  );
+
+  return [theme, toggle];
+}
+
+/* ─── Entry card ───────────────────────────────────────────────── */
+function EntryCard({ entry, onDelete }) {
+  const [confirming, setConfirming] = useState(false);
+  const label = formatDate(entry.date);
+
+  return (
+    <article className="entry">
+      <header>
+        <time dateTime={entry.date}>{label}</time>
+
+        {confirming ? (
+          <div className="confirm">
+            <span>Delete this entry?</span>
+            <button
+              type="button"
+              className="btn btn-icon btn-danger"
+              onClick={() => onDelete(entry.id)}
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              className="btn btn-icon"
+              onClick={() => setConfirming(false)}
+            >
+              Keep
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-icon"
+            onClick={() => setConfirming(true)}
+          >
+            Delete<span className="sr-only"> entry from {label}</span>
+          </button>
+        )}
+      </header>
+
+      <ol>
+        {entry.items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ol>
+    </article>
+  );
+}
+
+/* ─── App ──────────────────────────────────────────────────────── */
+function GratitudeJournal() {
+  const [theme, toggleTheme] = useTheme();
+
+  const [drafts, setDrafts] = useState(() => Array(SLOTS).fill(''));
+  const [entries, setEntries] = useState(loadEntries);
+  const [showHistory, setShowHistory] = useState(false);
+  const [toast, setToast] = useState('');
+
+  const toastTimer = useRef(null);
+  const firstField = useRef(null);
+  const mounted = useRef(false);
+
+  /* Single write path: any change to entries is persisted here, so a new
+     mutation can never forget to save. Skipped on first render. */
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    const ok = storage.set(ENTRIES_KEY, JSON.stringify(entries));
+    if (!ok) setToast("Couldn't save — browser storage is full or blocked.");
+  }, [entries]);
+
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  const flash = useCallback(message => {
+    setToast(message);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 2500);
+  }, []);
+
+  const filled = useMemo(
+    () => drafts.map(d => d.trim()).filter(Boolean),
+    [drafts]
+  );
+
+  const updateDraft = (index, value) =>
+    setDrafts(prev => prev.map((d, i) => (i === index ? value : d)));
+
+  const save = () => {
+    if (filled.length === 0) return;
+
+    setEntries(prev => [
+      { id: newId(), date: new Date().toISOString(), items: filled },
+      ...prev,
+    ]);
+
+    setDrafts(Array(SLOTS).fill(''));
+    flash('Entry saved.');
+    firstField.current?.focus();
+  };
+
+  const deleteEntry = id => setEntries(prev => prev.filter(e => e.id !== id));
+
+  /* Ctrl/Cmd+Enter from any textarea saves. */
+  const onKeyDown = event => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault();
+      save();
+    }
+  };
+
+  const exportEntries = () => {
+    const blob = new Blob([JSON.stringify(entries, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `gratitude-journal-${new Date()
+      .toISOString()
+      .slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="shell">
+      <div className="topbar">
+        <button
+          type="button"
+          className="btn btn-icon"
+          onClick={toggleTheme}
+          aria-pressed={theme === 'dark'}
+        >
+          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+        </button>
+      </div>
+
+      <header className="masthead">
+        <h1>Gratitude Journal</h1>
+        <p>What are you grateful for today?</p>
+      </header>
+
+      {/* Announced to screen readers without stealing focus. */}
+      <div role="status" aria-live="polite">
+        {toast && <div className="toast">{toast}</div>}
+      </div>
+
+      <section className="card" aria-label="New entry">
+        {drafts.map((value, index) => (
+          <div className="field" key={index}>
+            <label htmlFor={`gratitude-${index}`}>{index + 1}.</label>
+            <textarea
+              id={`gratitude-${index}`}
+              ref={index === 0 ? firstField : null}
+              value={value}
+              onChange={e => updateDraft(index, e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="I'm grateful for..."
+            />
+          </div>
+        ))}
+
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={save}
+          disabled={filled.length === 0}
+        >
+          Save entry
+        </button>
+
+        <p className="hint">
+          <kbd>Ctrl</kbd> + <kbd>Enter</kbd> saves
+        </p>
+      </section>
+
+      {entries.length === 0 ? (
+        <p className="empty">Your first entry will appear here.</p>
+      ) : (
+        <>
+          <div className="history-bar">
+            <button
+              type="button"
+              className="btn btn-quiet"
+              onClick={() => setShowHistory(v => !v)}
+              aria-expanded={showHistory}
+              aria-controls="history"
+            >
+              {showHistory ? 'Hide past entries' : 'View past entries'} (
+              {entries.length})
+            </button>
+            <button type="button" className="btn btn-icon" onClick={exportEntries}>
+              Export
+            </button>
+          </div>
+
+          {showHistory && (
+            <section className="history" id="history">
+              <h2>Past entries</h2>
+              {entries.map(entry => (
+                <EntryCard key={entry.id} entry={entry} onDelete={deleteEntry} />
+              ))}
+            </section>
+          )}
+        </>
+      )}
+
+      {!storage.persistent && (
+        <p className="empty">
+          Browser storage is unavailable, so entries will only last until you
+          close this tab.
+        </p>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<GratitudeJournal />);
+</script>
+</body>
+</html>
