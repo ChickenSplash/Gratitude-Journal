@@ -346,18 +346,9 @@ const newId = () =>
   window.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
-/** Migrates and validates whatever is in storage. Anything malformed is
- *  dropped rather than allowed to crash the render. */
-function loadEntries() {
-  const raw = storage.get(ENTRIES_KEY);
-  if (!raw) return [];
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
+/** Migrates and validates parsed JSON — from storage or an imported file.
+ *  Anything malformed is dropped rather than allowed to crash the render. */
+function sanitiseEntries(parsed) {
   if (!Array.isArray(parsed)) return [];
 
   return parsed
@@ -368,6 +359,19 @@ function loadEntries() {
       items: e.items.filter(i => typeof i === 'string' && i.trim() !== ''),
     }))
     .filter(e => e.items.length > 0);
+}
+
+const byNewest = (a, b) => new Date(b.date) - new Date(a.date);
+
+function loadEntries() {
+  const raw = storage.get(ENTRIES_KEY);
+  if (!raw) return [];
+
+  try {
+    return sanitiseEntries(JSON.parse(raw));
+  } catch {
+    return [];
+  }
 }
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -475,6 +479,7 @@ function GratitudeJournal() {
 
   const toastTimer = useRef(null);
   const firstField = useRef(null);
+  const fileInput = useRef(null);
   const mounted = useRef(false);
 
   /* Single write path: any change to entries is persisted here, so a new
@@ -541,6 +546,36 @@ function GratitudeJournal() {
     URL.revokeObjectURL(url);
   };
 
+  /* Adds entries from an exported file, skipping ones already here. */
+  const importEntries = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // so the same file can be picked again
+    if (!file) return;
+
+    let imported;
+    try {
+      imported = sanitiseEntries(JSON.parse(await file.text()));
+    } catch {
+      flash("Couldn't read that file — is it a journal export?");
+      return;
+    }
+
+    const seen = new Set(entries.map(e => e.id));
+    const fresh = imported.filter(e => !seen.has(e.id));
+
+    if (fresh.length === 0) {
+      flash(
+        imported.length === 0
+          ? 'No entries found in that file.'
+          : 'Those entries are already in your journal.'
+      );
+      return;
+    }
+
+    setEntries(prev => [...prev, ...fresh].sort(byNewest));
+    flash(`Imported ${fresh.length} ${fresh.length === 1 ? 'entry' : 'entries'}.`);
+  };
+
   return (
     <div className="shell">
       <div className="topbar">
@@ -593,11 +628,13 @@ function GratitudeJournal() {
         </p>
       </section>
 
-      {entries.length === 0 ? (
+      {entries.length === 0 && (
         <p className="empty">Your first entry will appear here.</p>
-      ) : (
-        <>
-          <div className="history-bar">
+      )}
+
+      <div className="history-bar">
+        {entries.length > 0 && (
+          <>
             <button
               type="button"
               className="btn btn-quiet"
@@ -611,17 +648,33 @@ function GratitudeJournal() {
             <button type="button" className="btn btn-icon" onClick={exportEntries}>
               Export
             </button>
-          </div>
+          </>
+        )}
 
-          {showHistory && (
-            <section className="history" id="history">
-              <h2>Past entries</h2>
-              {entries.map(entry => (
-                <EntryCard key={entry.id} entry={entry} onDelete={deleteEntry} />
-              ))}
-            </section>
-          )}
-        </>
+        <button
+          type="button"
+          className="btn btn-icon"
+          onClick={() => fileInput.current?.click()}
+        >
+          Import
+        </button>
+        <input
+          type="file"
+          accept="application/json,.json"
+          ref={fileInput}
+          onChange={importEntries}
+          className="sr-only"
+          aria-label="Import entries from a JSON file"
+        />
+      </div>
+
+      {entries.length > 0 && showHistory && (
+        <section className="history" id="history">
+          <h2>Past entries</h2>
+          {entries.map(entry => (
+            <EntryCard key={entry.id} entry={entry} onDelete={deleteEntry} />
+          ))}
+        </section>
       )}
 
       {!storage.persistent && (
