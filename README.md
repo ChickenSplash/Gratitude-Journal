@@ -67,31 +67,73 @@ sends passwords and session tokens in the clear.
 ## Hosting it
 
 PocketBase is a single binary with an embedded SQLite database, so hosting is
-unusually simple. Any of these work:
+unusually simple. The one hard requirement: **`pb_data/` must survive restarts
+and redeploys.** That directory *is* your users' journals. Platforms with an
+ephemeral filesystem will lose it without warning.
 
-- **A small VPS** (Hetzner, DigitalOcean, ~$5/month). Copy the binary and
-  `pb_migrations/` up, put nginx or Caddy in front for TLS, and run it under
-  systemd.
-- **[PikaPods](https://www.pikapods.com/)** — has a one-click PocketBase image;
-  cheapest path if you'd rather not administer a server.
-- **[Fly.io](https://fly.io)** — works well, but mount a persistent volume at
-  `/pb_data`. Without one, every deploy wipes the database.
-- **Railway / Render** — same caveat: attach a persistent disk, don't rely on
-  the container filesystem.
-
-Two things to get right wherever you host:
-
-**Persist `pb_data/`.** That directory *is* your users' journals. On any
-container platform it must be a mounted volume, and it should be backed up.
-
-**Set the CORS origin.** PocketBase allows all origins by default, which is
-fine locally. Once deployed, restrict it to the domain serving the HTML — in
-the dashboard under *Settings*, or with
-`--origins=https://yourdomain.example`.
-
-To serve the app from PocketBase itself and skip CORS entirely, drop
+The simplest setup is a single host serving both halves: drop
 `gratitude-journal.html` into `pocketbase/pb_public/` as `index.html` and set
-`POCKETBASE_URL` to `window.location.origin`.
+`POCKETBASE_URL` to `window.location.origin`. One thing to deploy, and no CORS
+to configure.
+
+### Free options that keep your data
+
+These are genuinely free and give you a real disk:
+
+- **[Oracle Cloud Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)**
+  — the most generous. 200 GB of block storage, 10 TB/month egress, and either
+  two AMD micro instances (1 GB RAM each) or ~2 Arm OCPUs with 12 GB. Free for
+  the life of the account, not a 12-month trial. Two catches: Arm capacity is
+  frequently "out of host capacity" in popular regions, and Oracle may reclaim
+  Always Free instances idle for 7 straight days (under 20% CPU, network and
+  memory) — which a quiet journal can easily trip. An uptime pinger, or
+  upgrading to pay-as-you-go, avoids that.
+- **[Google Cloud Always Free](https://cloud.google.com/free/docs/compute-getting-started)**
+  — one `e2-micro` in `us-west1`, `us-central1` or `us-east1` plus 30 GB of
+  disk. Smaller, but no idle-reclamation policy. Choose **Standard** persistent
+  disk; Balanced and SSD are not free.
+- **A Raspberry Pi or spare machine at home**, exposed with a free
+  [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/).
+  Gives you HTTPS with no public IP, no port forwarding and no cloud account.
+  Your uptime is your own.
+
+The static HTML can go on Cloudflare Pages, GitHub Pages or Netlify for free if
+you'd rather keep it separate — but if you use the `pb_public/` approach above
+you don't need a second host at all.
+
+### Free tiers that will eat your data
+
+Worth naming, because they're the usual suggestions:
+
+- **Render's free tier** has an ephemeral filesystem and sleeps after
+  inactivity. PocketBase's own maintainer
+  [advises against relying on it](https://github.com/pocketbase/pocketbase/discussions/6992)
+  for anything you need to keep. Same story for any free container tier without
+  an attached volume.
+- **Fly.io no longer has a free tier** — new accounts get a short trial only.
+  It's a good paid host; mount a volume at `/pb_data` if you use it.
+- **[PocketHost](https://pockethost.io/pricing)** is PocketBase-specific managed
+  hosting and handles TLS, backups and updates for you, but it is now paid
+  (~$10/month, or a one-off lifetime option).
+
+### Paid, if you'd rather not administer anything
+
+A ~$5/month VPS (Hetzner, DigitalOcean) with Caddy in front for TLS, or
+[PikaPods](https://www.pikapods.com/), which has a one-click PocketBase image.
+
+### Back it up regardless
+
+Free tiers can and do disappear. PocketBase has backups built in — *Settings →
+Backups* in the dashboard, which can run on a schedule and upload to any
+S3-compatible bucket (Cloudflare R2's free tier is enough for journal-sized
+data). The app's own **Export** button is a per-user fallback, not a substitute.
+
+### Set the CORS origin
+
+PocketBase allows all origins by default, which is fine locally. If you serve
+the HTML from a different domain than the API, restrict it once deployed — in
+the dashboard under *Settings*, or with `--origins=https://yourdomain.example`.
+Serving from `pb_public/` sidesteps this entirely.
 
 ## Password resets need email
 
