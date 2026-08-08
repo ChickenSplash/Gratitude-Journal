@@ -101,6 +101,24 @@ The static HTML can go on Cloudflare Pages, GitHub Pages or Netlify for free if
 you'd rather keep it separate — but if you use the `pb_public/` approach above
 you don't need a second host at all.
 
+#### If you serve the page from GitHub Pages
+
+This repo already publishes to
+<https://chickensplash.github.io/Gratitude-Journal/gratitude-journal.html>, so
+the front end is done. Two consequences:
+
+- **PocketBase must be reachable over `https`.** Pages is HTTPS-only, and
+  browsers block an HTTPS page from calling an `http://` API — the requests fail
+  silently with a mixed-content error and the app falls back to looking
+  unreachable. So the default `http://127.0.0.1:8090` cannot work from the
+  published page; that value is for local development only. Put Caddy,
+  nginx or a Cloudflare Tunnel in front of PocketBase for a certificate.
+- **Set the CORS origin to `https://chickensplash.github.io`**, since the page
+  and the API are on different domains.
+
+Rename the file to `index.html` if you'd like the bare
+`/Gratitude-Journal/` URL to work — right now it 404s.
+
 ### Free tiers that will eat your data
 
 Worth naming, because they're the usual suggestions:
