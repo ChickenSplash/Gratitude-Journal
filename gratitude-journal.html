@@ -81,8 +81,19 @@
 
   .topbar {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    gap: 4px;
     margin-bottom: 8px;
+  }
+
+  .account {
+    margin-right: auto;
+    font-size: 14px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .masthead { text-align: center; margin-bottom: 44px; }
@@ -120,26 +131,32 @@
     color: var(--text-muted);
   }
 
-  .field textarea {
+  .field textarea,
+  .field input {
     display: block;
     width: 100%;
-    min-height: 80px;
     padding: 14px 16px;
     font: inherit;
     color: var(--text);
     background: var(--input-bg);
     border: 2px solid var(--border);
     border-radius: 10px;
-    resize: vertical;
     transition: border-color 0.2s ease, background-color 0.3s ease;
   }
 
-  .field textarea:focus {
+  .field textarea {
+    min-height: 80px;
+    resize: vertical;
+  }
+
+  .field textarea:focus,
+  .field input:focus {
     outline: none;
     border-color: var(--accent);
   }
 
-  .field textarea::placeholder { color: var(--text-muted); opacity: 0.7; }
+  .field textarea::placeholder,
+  .field input::placeholder { color: var(--text-muted); opacity: 0.7; }
 
   .hint {
     margin: 20px 0 0;
@@ -218,6 +235,60 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  .toast-error { color: var(--danger); border-color: var(--danger); }
+
+  /* ── Auth ─────────────────────────────────────────────────────── */
+  .auth { margin-bottom: 24px; }
+
+  .auth h2 {
+    margin: 0 0 4px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .auth-intro {
+    margin: 0 0 24px;
+    font-size: 15px;
+    color: var(--text-muted);
+  }
+
+  .auth-error {
+    margin: 0 0 20px;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: var(--danger);
+    background: var(--accent-soft);
+    border: 1px solid var(--danger);
+    border-radius: 10px;
+  }
+
+  .auth-switch {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-top: 20px;
+  }
+
+  /* ── Notice (local-entry migration prompt) ────────────────────── */
+  .notice {
+    margin-bottom: 24px;
+    padding: 20px 24px;
+    background: var(--card);
+    border: 2px solid var(--accent);
+    border-radius: var(--radius);
+  }
+
+  .notice p { margin: 0 0 12px; font-size: 15px; }
+
+  .notice-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+  }
+
   /* ── History ──────────────────────────────────────────────────── */
   .history-bar {
     display: flex;
@@ -290,11 +361,21 @@
 <body>
 <div id="root"></div>
 
+<!-- ── Where your PocketBase server lives ───────────────────────────────
+     Change this to your own server's URL before deploying, e.g.
+       window.POCKETBASE_URL = 'https://journal.example.com';
+     Leave it as-is to talk to a PocketBase started by pocketbase/start.sh.
+     See README.md for hosting instructions.                              -->
+<script>
+  window.POCKETBASE_URL = 'http://127.0.0.1:8090';
+</script>
+
 <!-- Production React builds. Babel is here only so the JSX below runs without a
      build step — see the note at the bottom of this file for removing it. -->
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+<script src="https://unpkg.com/pocketbase@0.27.1/dist/pocketbase.umd.js" crossorigin></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
@@ -339,7 +420,38 @@ const storage = (() => {
 
 const ENTRIES_KEY = 'gratitudeEntries';
 const THEME_KEY = 'gratitudeTheme';
+const DECLINED_KEY = 'gratitudeUploadDeclined';
 const SLOTS = 3;
+
+/* ─── PocketBase ───────────────────────────────────────────────────
+   Null when the SDK script didn't load (offline, blocked CDN). The app
+   then runs exactly as it did before accounts existed: local-only.    */
+const pb = window.PocketBase
+  ? new window.PocketBase(window.POCKETBASE_URL || 'http://127.0.0.1:8090')
+  : null;
+
+/** Turns an SDK/network failure into something worth showing a person. */
+function describeError(error) {
+  if (!error) return 'Something went wrong.';
+  if (error.isAbort) return '';
+
+  /* The SDK reports unreachable hosts and CORS rejections as status 0. */
+  if (error.status === 0) {
+    return "Can't reach the journal server. Check that it's running and that " +
+           'POCKETBASE_URL points at it.';
+  }
+
+  /* Per-field validation, e.g. { email: { message: '...' } }. */
+  const fields = error.response?.data;
+  if (fields && typeof fields === 'object') {
+    const messages = Object.values(fields)
+      .map(detail => detail?.message)
+      .filter(Boolean);
+    if (messages.length > 0) return messages.join(' ');
+  }
+
+  return error.response?.message || error.message || 'Something went wrong.';
+}
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
 const newId = () =>
@@ -368,10 +480,99 @@ function loadEntries() {
   if (!raw) return [];
 
   try {
-    return sanitiseEntries(JSON.parse(raw));
+    return sanitiseEntries(JSON.parse(raw)).sort(byNewest);
   } catch {
     return [];
   }
+}
+
+/* ─── Backends ─────────────────────────────────────────────────────
+   Two interchangeable stores behind one shape. Every mutation returns the
+   complete new list, so the caller never has to guess what changed — and
+   each backend keeps its single write path.
+
+     list()                  → Entry[]
+     create({date, items})   → Entry[]
+     addMany(entries)        → Entry[]
+     remove(id)              → Entry[]
+
+   `current` is the list on screen; the cloud backend builds on it rather
+   than re-fetching after every keystroke's worth of work.               */
+
+function localBackend() {
+  const commit = list => {
+    const ok = storage.set(ENTRIES_KEY, JSON.stringify(list));
+    if (!ok) throw new Error("Couldn't save — browser storage is full or blocked.");
+    return list;
+  };
+
+  /* Re-reading storage rather than trusting `current` keeps two tabs from
+     silently clobbering each other's entries. */
+  return {
+    kind: 'local',
+    async list() {
+      return loadEntries();
+    },
+    async create({ date, items }) {
+      return commit([{ id: newId(), date, items }, ...loadEntries()]);
+    },
+    async addMany(entries) {
+      return commit([...loadEntries(), ...entries].sort(byNewest));
+    },
+    async remove(id) {
+      return commit(loadEntries().filter(e => e.id !== id));
+    },
+  };
+}
+
+/** PocketBase record → the shape the UI already understands. */
+function fromRecord(record) {
+  return {
+    id: record.id,
+    /* PocketBase returns "2026-08-08 09:30:00.000Z". Safari won't parse the
+       space-separated form, so normalise it to ISO-8601 here — the one place
+       records enter the app. */
+    date: typeof record.date === 'string' && record.date
+      ? record.date.replace(' ', 'T')
+      : new Date().toISOString(),
+    items: Array.isArray(record.items)
+      ? record.items.filter(i => typeof i === 'string' && i.trim() !== '')
+      : [],
+  };
+}
+
+function cloudBackend(userId) {
+  const entries = () => pb.collection('entries');
+
+  return {
+    kind: 'cloud',
+    async list() {
+      const records = await entries().getFullList({ sort: '-date', batch: 200 });
+      return records.map(fromRecord);
+    },
+    async create({ date, items }, current = []) {
+      const record = await entries().create({ user: userId, date, items });
+      return [fromRecord(record), ...current].sort(byNewest);
+    },
+    async addMany(list, current = []) {
+      const created = [];
+      /* Sequential: a half-finished parallel upload is much harder to
+         reason about, and these batches are small. */
+      for (const entry of list) {
+        const record = await entries().create({
+          user: userId,
+          date: entry.date,
+          items: entry.items,
+        });
+        created.push(fromRecord(record));
+      }
+      return [...current, ...created].sort(byNewest);
+    },
+    async remove(id, current = []) {
+      await entries().delete(id);
+      return current.filter(e => e.id !== id);
+    },
+  };
 }
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -418,6 +619,172 @@ function useTheme() {
   );
 
   return [theme, toggle];
+}
+
+/* ─── Auth ─────────────────────────────────────────────────────── */
+function useAuth() {
+  const [user, setUser] = useState(() => pb?.authStore.record ?? null);
+
+  useEffect(() => {
+    if (!pb) return undefined;
+    /* onChange returns its own unsubscribe function. */
+    return pb.authStore.onChange((token, record) => setUser(record ?? null));
+  }, []);
+
+  /* A stored token may have expired while the tab was closed. Refresh it once
+     on mount so we don't show a signed-in UI that fails on the first write.
+     Network trouble must not sign anyone out — only a refusal does. */
+  useEffect(() => {
+    if (!pb?.authStore.isValid) return;
+    pb.collection('users').authRefresh().catch(error => {
+      if (error?.status === 401 || error?.status === 403) pb.authStore.clear();
+    });
+  }, []);
+
+  return user;
+}
+
+const AUTH_COPY = {
+  signin:   { heading: 'Welcome back',      action: 'Sign in',        busy: 'Signing in…' },
+  register: { heading: 'Create an account', action: 'Create account', busy: 'Creating…' },
+  reset:    { heading: 'Reset your password', action: 'Send reset link', busy: 'Sending…' },
+};
+
+function AuthPanel({ onSignedIn, onCancel }) {
+  const [mode, setMode] = useState('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const emailField = useRef(null);
+  useEffect(() => { emailField.current?.focus(); }, []);
+
+  const switchTo = next => {
+    setMode(next);
+    setError('');
+    setNotice('');
+    setPassword('');
+  };
+
+  const submit = async event => {
+    event.preventDefault();
+    if (busy) return;
+
+    setBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const users = pb.collection('users');
+
+      if (mode === 'reset') {
+        await users.requestPasswordReset(email.trim());
+        /* Deliberately not confirming whether the address exists. */
+        setNotice('If that address has an account, a reset link is on its way.');
+        return;
+      }
+
+      if (mode === 'register') {
+        await users.create({
+          email: email.trim(),
+          password,
+          passwordConfirm: password,
+        });
+      }
+
+      await users.authWithPassword(email.trim(), password);
+      setPassword('');
+      onSignedIn();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = AUTH_COPY[mode];
+
+  return (
+    <section className="card auth" aria-label={copy.heading}>
+      <h2>{copy.heading}</h2>
+      <p className="auth-intro">
+        {mode === 'reset'
+          ? "We'll email you a link to choose a new password."
+          : 'Your entries sync to your account, so they follow you between devices.'}
+      </p>
+
+      <div role="alert">
+        {error && <p className="auth-error">{error}</p>}
+      </div>
+      <div role="status" aria-live="polite">
+        {notice && <p className="hint">{notice}</p>}
+      </div>
+
+      <form onSubmit={submit}>
+        <div className="field">
+          <label htmlFor="auth-email">Email</label>
+          <input
+            id="auth-email"
+            ref={emailField}
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            autoComplete="email"
+            required
+          />
+        </div>
+
+        {mode !== 'reset' && (
+          <div className="field">
+            <label htmlFor="auth-password">Password</label>
+            <input
+              id="auth-password"
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+              minLength={8}
+              required
+            />
+            {mode === 'register' && (
+              <p className="hint" style={{ textAlign: 'left', marginTop: '8px' }}>
+                At least 8 characters.
+              </p>
+            )}
+          </div>
+        )}
+
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {busy ? copy.busy : copy.action}
+        </button>
+      </form>
+
+      <div className="auth-switch">
+        {mode === 'signin' && (
+          <>
+            <button type="button" className="btn btn-quiet" onClick={() => switchTo('register')}>
+              Create an account
+            </button>
+            <button type="button" className="btn btn-icon" onClick={() => switchTo('reset')}>
+              Forgot password?
+            </button>
+          </>
+        )}
+
+        {mode !== 'signin' && (
+          <button type="button" className="btn btn-quiet" onClick={() => switchTo('signin')}>
+            Back to sign in
+          </button>
+        )}
+
+        <button type="button" className="btn btn-icon" onClick={onCancel}>
+          Continue without an account
+        </button>
+      </div>
+    </section>
+  );
 }
 
 /* ─── Entry card ───────────────────────────────────────────────── */
@@ -471,35 +838,85 @@ function EntryCard({ entry, onDelete }) {
 /* ─── App ──────────────────────────────────────────────────────── */
 function GratitudeJournal() {
   const [theme, toggleTheme] = useTheme();
+  const user = useAuth();
 
   const [drafts, setDrafts] = useState(() => Array(SLOTS).fill(''));
-  const [entries, setEntries] = useState(loadEntries);
+  /* Signed-in sessions fetch from the server, so start empty and let the
+     loader fill in; guests can render their entries immediately. */
+  const [entries, setEntries] = useState(() =>
+    pb?.authStore.isValid ? [] : loadEntries()
+  );
+  const [loading, setLoading] = useState(() => Boolean(pb?.authStore.isValid));
+  const [loadError, setLoadError] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
+  const [toastTone, setToastTone] = useState('info');
+  const [pendingUpload, setPendingUpload] = useState(null);
+  /* Bumped to re-run the loader after a failed fetch. */
+  const [reloadToken, setReloadToken] = useState(0);
 
   const toastTimer = useRef(null);
   const firstField = useRef(null);
   const fileInput = useRef(null);
-  const mounted = useRef(false);
 
-  /* Single write path: any change to entries is persisted here, so a new
-     mutation can never forget to save. Skipped on first render. */
-  useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
-    const ok = storage.set(ENTRIES_KEY, JSON.stringify(entries));
-    if (!ok) setToast("Couldn't save — browser storage is full or blocked.");
-  }, [entries]);
+  /* Entries live either in this browser or in the signed-in user's account —
+     never both, so signing out can't leave someone else's entries on the
+     device. Swapping the backend is the only thing that decides which. */
+  const backend = useMemo(
+    () => (user && pb ? cloudBackend(user.id) : localBackend()),
+    [user?.id]
+  );
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
-  const flash = useCallback(message => {
+  const flash = useCallback((message, tone = 'info') => {
     setToast(message);
+    setToastTone(tone);
     clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(''), 2500);
+    /* Errors are worth more reading time than "Entry saved.". */
+    toastTimer.current = setTimeout(
+      () => setToast(''),
+      tone === 'error' ? 6000 : 2500
+    );
   }, []);
+
+  /* Load whenever the backend changes: on mount, on sign-in, on sign-out. */
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoadError('');
+    setShowHistory(false);
+    setLoading(true);
+
+    backend
+      .list()
+      .then(list => {
+        if (cancelled) return;
+        setEntries(list);
+
+        /* Just signed in with entries still on this device? Offer to move
+           them across rather than silently stranding them. */
+        if (backend.kind === 'cloud') {
+          const declined = storage.get(DECLINED_KEY) === user?.id;
+          const local = loadEntries();
+          if (local.length > 0 && !declined) setPendingUpload(local);
+        } else {
+          setPendingUpload(null);
+        }
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setEntries([]);
+        setLoadError(describeError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [backend, reloadToken]);
 
   const filled = useMemo(
     () => drafts.map(d => d.trim()).filter(Boolean),
@@ -509,20 +926,65 @@ function GratitudeJournal() {
   const updateDraft = (index, value) =>
     setDrafts(prev => prev.map((d, i) => (i === index ? value : d)));
 
+  /* Every mutation funnels through here so the backend call, the busy flag and
+     the error path are written once instead of per action. */
+  const mutate = useCallback(
+    async (operation, onSuccess) => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        const next = await operation();
+        setEntries(next);
+        onSuccess?.(next);
+      } catch (error) {
+        flash(describeError(error), 'error');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, flash]
+  );
+
   const save = () => {
     if (filled.length === 0) return;
 
-    setEntries(prev => [
-      { id: newId(), date: new Date().toISOString(), items: filled },
-      ...prev,
-    ]);
-
-    setDrafts(Array(SLOTS).fill(''));
-    flash('Entry saved.');
-    firstField.current?.focus();
+    const draft = { date: new Date().toISOString(), items: filled };
+    mutate(
+      () => backend.create(draft, entries),
+      () => {
+        setDrafts(Array(SLOTS).fill(''));
+        flash(backend.kind === 'cloud' ? 'Entry saved to your account.' : 'Entry saved.');
+        firstField.current?.focus();
+      }
+    );
   };
 
-  const deleteEntry = id => setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = id => mutate(() => backend.remove(id, entries));
+
+  /* Moves this device's entries into the account, then clears the local copy
+     so the two can't drift apart. Only on a clean upload. */
+  const uploadLocal = () => {
+    const count = pendingUpload.length;
+    mutate(
+      () => backend.addMany(pendingUpload, entries),
+      () => {
+        storage.set(ENTRIES_KEY, '[]');
+        setPendingUpload(null);
+        flash(`Moved ${count} ${count === 1 ? 'entry' : 'entries'} to your account.`);
+      }
+    );
+  };
+
+  const keepLocal = () => {
+    if (user?.id) storage.set(DECLINED_KEY, user.id);
+    setPendingUpload(null);
+  };
+
+  const signOut = () => {
+    pb?.authStore.clear();
+    setShowAuth(false);
+    flash('Signed out.');
+  };
 
   /* Ctrl/Cmd+Enter from any textarea saves. */
   const onKeyDown = event => {
@@ -546,7 +1008,9 @@ function GratitudeJournal() {
     URL.revokeObjectURL(url);
   };
 
-  /* Adds entries from an exported file, skipping ones already here. */
+  /* Adds entries from an exported file, skipping ones already here. Matching on
+     content as well as id, because the server assigns its own ids — a re-import
+     of the same file would otherwise duplicate everything. */
   const importEntries = async event => {
     const file = event.target.files?.[0];
     event.target.value = ''; // so the same file can be picked again
@@ -556,12 +1020,16 @@ function GratitudeJournal() {
     try {
       imported = sanitiseEntries(JSON.parse(await file.text()));
     } catch {
-      flash("Couldn't read that file — is it a journal export?");
+      flash("Couldn't read that file — is it a journal export?", 'error');
       return;
     }
 
-    const seen = new Set(entries.map(e => e.id));
-    const fresh = imported.filter(e => !seen.has(e.id));
+    const signature = e => `${e.date}\u0000${e.items.join('\u0000')}`;
+    const seenIds = new Set(entries.map(e => e.id));
+    const seenContent = new Set(entries.map(signature));
+    const fresh = imported.filter(
+      e => !seenIds.has(e.id) && !seenContent.has(signature(e))
+    );
 
     if (fresh.length === 0) {
       flash(
@@ -572,13 +1040,34 @@ function GratitudeJournal() {
       return;
     }
 
-    setEntries(prev => [...prev, ...fresh].sort(byNewest));
-    flash(`Imported ${fresh.length} ${fresh.length === 1 ? 'entry' : 'entries'}.`);
+    mutate(
+      () => backend.addMany(fresh, entries),
+      () => flash(`Imported ${fresh.length} ${fresh.length === 1 ? 'entry' : 'entries'}.`)
+    );
   };
 
   return (
     <div className="shell">
       <div className="topbar">
+        {user && <span className="account">Signed in as {user.email}</span>}
+
+        {pb && (
+          user ? (
+            <button type="button" className="btn btn-icon" onClick={signOut}>
+              Sign out
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-quiet"
+              onClick={() => setShowAuth(v => !v)}
+              aria-expanded={showAuth}
+            >
+              {showAuth ? 'Close' : 'Sign in'}
+            </button>
+          )
+        )}
+
         <button
           type="button"
           className="btn btn-icon"
@@ -596,8 +1085,58 @@ function GratitudeJournal() {
 
       {/* Announced to screen readers without stealing focus. */}
       <div role="status" aria-live="polite">
-        {toast && <div className="toast">{toast}</div>}
+        {toast && (
+          <div className={toastTone === 'error' ? 'toast toast-error' : 'toast'}>
+            {toast}
+          </div>
+        )}
       </div>
+
+      {showAuth && !user && (
+        <AuthPanel
+          onSignedIn={() => setShowAuth(false)}
+          onCancel={() => setShowAuth(false)}
+        />
+      )}
+
+      {loadError && (
+        <div className="notice" role="alert">
+          <p>{loadError}</p>
+          <div className="notice-actions">
+            <button
+              type="button"
+              className="btn btn-quiet"
+              onClick={() => setReloadToken(n => n + 1)}
+              disabled={loading}
+            >
+              {loading ? 'Retrying…' : 'Try again'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pendingUpload && (
+        <div className="notice">
+          <p>
+            {pendingUpload.length === 1
+              ? 'There is 1 entry saved on this device. Move it into your account so it follows you between devices?'
+              : `There are ${pendingUpload.length} entries saved on this device. Move them into your account so they follow you between devices?`}
+          </p>
+          <div className="notice-actions">
+            <button
+              type="button"
+              className="btn btn-quiet"
+              onClick={uploadLocal}
+              disabled={busy}
+            >
+              {busy ? 'Moving…' : 'Move to my account'}
+            </button>
+            <button type="button" className="btn btn-icon" onClick={keepLocal}>
+              Keep on this device
+            </button>
+          </div>
+        </div>
+      )}
 
       <section className="card" aria-label="New entry">
         {drafts.map((value, index) => (
@@ -618,9 +1157,9 @@ function GratitudeJournal() {
           type="button"
           className="btn btn-primary"
           onClick={save}
-          disabled={filled.length === 0}
+          disabled={filled.length === 0 || busy}
         >
-          Save entry
+          {busy ? 'Saving…' : 'Save entry'}
         </button>
 
         <p className="hint">
@@ -628,7 +1167,9 @@ function GratitudeJournal() {
         </p>
       </section>
 
-      {entries.length === 0 && (
+      {loading && <p className="empty">Loading your entries…</p>}
+
+      {!loading && !loadError && entries.length === 0 && (
         <p className="empty">Your first entry will appear here.</p>
       )}
 
@@ -677,7 +1218,27 @@ function GratitudeJournal() {
         </section>
       )}
 
-      {!storage.persistent && (
+      {!pb && (
+        <p className="empty">
+          Accounts are unavailable — the PocketBase library couldn't load, so
+          entries stay on this device.
+        </p>
+      )}
+
+      {pb && !user && !showAuth && (
+        <p className="empty">
+          These entries are saved on this device only.{' '}
+          <button
+            type="button"
+            className="btn btn-quiet"
+            onClick={() => setShowAuth(true)}
+          >
+            Sign in to sync them
+          </button>
+        </p>
+      )}
+
+      {!storage.persistent && !user && (
         <p className="empty">
           Browser storage is unavailable, so entries will only last until you
           close this tab.

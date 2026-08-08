@@ -1,0 +1,7 @@
+# PocketBase binary — fetched by pocketbase/start.sh, pinned to PB_VERSION
+pocketbase/pocketbase
+pocketbase/*.zip
+
+# PocketBase database, uploads, logs and generated type defs.
+# This is real user data: never commit it.
+pocketbase/pb_data/
