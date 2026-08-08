@@ -81,8 +81,19 @@
 
   .topbar {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    gap: 4px;
     margin-bottom: 8px;
+  }
+
+  .topbar .who {
+    margin-right: auto;
+    font-size: 13px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .masthead { text-align: center; margin-bottom: 44px; }
@@ -120,26 +131,29 @@
     color: var(--text-muted);
   }
 
-  .field textarea {
+  .field textarea,
+  .field input {
     display: block;
     width: 100%;
-    min-height: 80px;
     padding: 14px 16px;
     font: inherit;
     color: var(--text);
     background: var(--input-bg);
     border: 2px solid var(--border);
     border-radius: 10px;
-    resize: vertical;
     transition: border-color 0.2s ease, background-color 0.3s ease;
   }
 
-  .field textarea:focus {
+  .field textarea { min-height: 80px; resize: vertical; }
+
+  .field textarea:focus,
+  .field input:focus {
     outline: none;
     border-color: var(--accent);
   }
 
-  .field textarea::placeholder { color: var(--text-muted); opacity: 0.7; }
+  .field textarea::placeholder,
+  .field input::placeholder { color: var(--text-muted); opacity: 0.7; }
 
   .hint {
     margin: 20px 0 0;
@@ -177,6 +191,18 @@
   }
   .btn-primary:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
   .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .btn-secondary {
+    display: block;
+    width: 100%;
+    margin-top: 12px;
+    padding: 14px;
+    color: var(--accent);
+    background: transparent;
+    border: 2px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--accent-soft); }
+  .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
 
   .btn-quiet {
     padding: 8px 14px;
@@ -216,6 +242,59 @@
   @keyframes rise {
     from { opacity: 0; transform: translateY(-8px); }
     to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Banner ───────────────────────────────────────────────────── */
+  .banner {
+    margin-bottom: 20px;
+    padding: 16px 20px;
+    font-size: 14px;
+    color: var(--text-muted);
+    background: var(--card);
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+  }
+
+  .banner p { margin: 0 0 12px; }
+  .banner p:last-child { margin-bottom: 0; }
+
+  .banner-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+  /* ── Auth ─────────────────────────────────────────────────────── */
+  .auth { max-width: 420px; margin: 0 auto; }
+
+  .switcher {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+
+  .switcher button[aria-selected="true"] {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 24px 0 0;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .divider::before, .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .error {
+    margin: 20px 0 0;
+    font-size: 14px;
+    color: var(--danger);
+    text-align: center;
   }
 
   /* ── History ──────────────────────────────────────────────────── */
@@ -295,9 +374,26 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/dist/umd/supabase.js" crossorigin></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ─── Supabase ─────────────────────────────────────────────────────
+   Paste your project's URL and anon (publishable) key here — both are
+   safe to ship in a public page: the anon key only grants what Row
+   Level Security allows, and the policies in supabase/schema.sql
+   restrict every row to the user who created it.
+
+   Leave them blank and the app runs exactly as before, storing
+   everything in this browser only.  See SETUP.md.                    */
+const SUPABASE_URL = '';
+const SUPABASE_ANON_KEY = '';
+
+const cloud =
+  SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
 
 /* ─── Storage ──────────────────────────────────────────────────────
    localStorage can throw: disabled cookies, private browsing, quota.
@@ -334,11 +430,20 @@ const storage = (() => {
         return false;
       }
     },
+    remove(key) {
+      try {
+        if (backing) backing.removeItem(key);
+        else memory.delete(key);
+      } catch {
+        /* nothing useful to do */
+      }
+    },
   };
 })();
 
 const ENTRIES_KEY = 'gratitudeEntries';
 const THEME_KEY = 'gratitudeTheme';
+const uploadedKey = userId => `gratitudeUploaded:${userId}`;
 const SLOTS = 3;
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
@@ -363,7 +468,7 @@ function sanitiseEntries(parsed) {
 
 const byNewest = (a, b) => new Date(b.date) - new Date(a.date);
 
-function loadEntries() {
+function loadLocalEntries() {
   const raw = storage.get(ENTRIES_KEY);
   if (!raw) return [];
 
@@ -373,6 +478,24 @@ function loadEntries() {
     return [];
   }
 }
+
+/* The table stores ids as uuid, so anything imported from an older
+   export that predates crypto.randomUUID needs a fresh one. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const withUuid = entry => (UUID.test(entry.id) ? entry : { ...entry, id: newId() });
+
+const toRow = (entry, userId) => ({
+  id: entry.id,
+  user_id: userId,
+  entry_date: entry.date,
+  items: entry.items,
+});
+
+const fromRow = row => ({
+  id: row.id,
+  date: row.entry_date,
+  items: Array.isArray(row.items) ? row.items : [],
+});
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric', month: 'short', year: 'numeric',
@@ -419,6 +542,82 @@ function useTheme() {
 
   return [theme, toggle];
 }
+
+/* ─── Session ──────────────────────────────────────────────────────
+   `undefined` while Supabase restores a stored session, so the app can
+   avoid flashing the sign-in screen at someone who is already signed in. */
+function useSession() {
+  const [session, setSession] = useState(cloud ? undefined : null);
+
+  useEffect(() => {
+    if (!cloud) return;
+
+    let live = true;
+    cloud.auth.getSession().then(({ data }) => {
+      if (live) setSession(data.session ?? null);
+    });
+
+    const { data } = cloud.auth.onAuthStateChange((_event, next) =>
+      setSession(next ?? null)
+    );
+
+    return () => {
+      live = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  return session;
+}
+
+/* ─── Data access ──────────────────────────────────────────────────
+   One shape, two backings, so the journal below never branches on
+   where an entry actually lives.                                     */
+function makeRepo(userId) {
+  if (!userId) {
+    return {
+      remote: false,
+      async list() {
+        return loadLocalEntries();
+      },
+      async add() {},
+      async remove() {},
+      async addMany() {},
+    };
+  }
+
+  return {
+    remote: true,
+    async list() {
+      const { data, error } = await cloud
+        .from('entries')
+        .select('id, entry_date, items')
+        .order('entry_date', { ascending: false });
+      if (error) throw error;
+      return data.map(fromRow);
+    },
+    async add(entry) {
+      const { error } = await cloud.from('entries').insert(toRow(entry, userId));
+      if (error) throw error;
+    },
+    async remove(id) {
+      const { error } = await cloud.from('entries').delete().eq('id', id);
+      if (error) throw error;
+    },
+    async addMany(entries) {
+      if (entries.length === 0) return;
+      const { error } = await cloud
+        .from('entries')
+        .insert(entries.map(e => toRow(e, userId)));
+      if (error) throw error;
+    },
+  };
+}
+
+/* Supabase surfaces these as prose already; this just keeps the rare
+   unhelpful ones from reaching the screen. */
+const describe = error =>
+  error?.message?.trim() || 'Something went wrong. Please try again.';
 
 /* ─── Entry card ───────────────────────────────────────────────── */
 function EntryCard({ entry, onDelete }) {
@@ -468,30 +667,266 @@ function EntryCard({ entry, onDelete }) {
   );
 }
 
-/* ─── App ──────────────────────────────────────────────────────── */
-function GratitudeJournal() {
-  const [theme, toggleTheme] = useTheme();
+/* ─── Sign in ──────────────────────────────────────────────────── */
+function AuthScreen({ onGoOffline }) {
+  const [mode, setMode] = useState('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const submit = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setNotice('');
+
+    const credentials = { email: email.trim(), password };
+    const { data, error: failure } =
+      mode === 'signin'
+        ? await cloud.auth.signInWithPassword(credentials)
+        : await cloud.auth.signUp(credentials);
+
+    setBusy(false);
+    if (failure) {
+      setError(describe(failure));
+      return;
+    }
+
+    /* With email confirmations switched on, signUp returns a user but no
+       session — nothing else happens until they click the link. */
+    if (mode === 'signup' && !data.session) {
+      setNotice('Check your inbox to confirm your email, then sign in.');
+      setMode('signin');
+      setPassword('');
+    }
+  };
+
+  const continueAsGuest = async () => {
+    setBusy(true);
+    setError('');
+    const { error: failure } = await cloud.auth.signInAnonymously();
+    setBusy(false);
+    if (failure) setError(describe(failure));
+  };
+
+  return (
+    <div className="auth">
+      <div className="switcher">
+        <button
+          type="button"
+          className="btn btn-quiet"
+          aria-selected={mode === 'signin'}
+          onClick={() => { setMode('signin'); setError(''); }}
+        >
+          Sign in
+        </button>
+        <button
+          type="button"
+          className="btn btn-quiet"
+          aria-selected={mode === 'signup'}
+          onClick={() => { setMode('signup'); setError(''); }}
+        >
+          Create account
+        </button>
+      </div>
+
+      <form className="card" onSubmit={submit}>
+        <div className="field">
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="you@example.com"
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="password">Password</label>
+          <input
+            id="password"
+            type="password"
+            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+            required
+            minLength={6}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="At least 6 characters"
+          />
+        </div>
+
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {mode === 'signin' ? 'Sign in' : 'Create account'}
+        </button>
+
+        {notice && <p className="hint">{notice}</p>}
+        {error && <p className="error">{error}</p>}
+
+        <p className="divider">or</p>
+
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={continueAsGuest}
+          disabled={busy}
+        >
+          Continue as a guest
+        </button>
+
+        <p className="hint">
+          A guest journal is saved to the cloud and stays on this browser. You
+          can turn it into a full account later without losing anything.
+        </p>
+
+        <button type="button" className="btn btn-secondary" onClick={onGoOffline}>
+          Use this device only
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/* ─── Guest upgrade ────────────────────────────────────────────────
+   Attaching an email and password to an anonymous user keeps the same
+   auth.uid(), so every existing row stays with them.                 */
+function GuestBanner() {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const upgrade = async event => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+
+    const { error: failure } = await cloud.auth.updateUser({
+      email: email.trim(),
+      password,
+    });
+
+    setBusy(false);
+    if (failure) {
+      setError(describe(failure));
+      return;
+    }
+
+    setNotice(
+      'Almost there — click the link in the confirmation email to finish.'
+    );
+  };
+
+  return (
+    <div className="banner">
+      <p>
+        You're signed in as a guest. Your entries are saved, but you'll lose
+        access to them if you clear this browser's data.
+      </p>
+
+      {notice ? (
+        <p>{notice}</p>
+      ) : open ? (
+        <form onSubmit={upgrade}>
+          <div className="field">
+            <label htmlFor="guest-email">Email</label>
+            <input
+              id="guest-email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="guest-password">Password</label>
+            <input
+              id="guest-password"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={6}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            Save my account
+          </button>
+          {error && <p className="error">{error}</p>}
+        </form>
+      ) : (
+        <div className="banner-actions">
+          <button
+            type="button"
+            className="btn btn-quiet"
+            onClick={() => setOpen(true)}
+          >
+            Keep these entries — add an email
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Journal ──────────────────────────────────────────────────── */
+function Journal({ userId }) {
+  const repo = useMemo(() => makeRepo(userId), [userId]);
 
   const [drafts, setDrafts] = useState(() => Array(SLOTS).fill(''));
-  const [entries, setEntries] = useState(loadEntries);
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [failure, setFailure] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [toast, setToast] = useState('');
+  const [strays, setStrays] = useState([]);
 
   const toastTimer = useRef(null);
   const firstField = useRef(null);
   const fileInput = useRef(null);
-  const mounted = useRef(false);
+  const loaded = useRef(false);
 
-  /* Single write path: any change to entries is persisted here, so a new
-     mutation can never forget to save. Skipped on first render. */
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
+    let live = true;
+
+    repo
+      .list()
+      .then(rows => {
+        if (!live) return;
+        setEntries(rows);
+        loaded.current = true;
+      })
+      .catch(error => live && setFailure(describe(error)))
+      .finally(() => live && setLoading(false));
+
+    return () => {
+      live = false;
+      loaded.current = false;
+    };
+  }, [repo]);
+
+  /* Entries written before signing in are still sitting in this browser.
+     Offering the upload beats silently duplicating or discarding them. */
+  useEffect(() => {
+    if (!repo.remote || storage.get(uploadedKey(userId))) return;
+    setStrays(loadLocalEntries());
+  }, [repo, userId]);
+
+  /* Local mode keeps its single write path: any change to entries is
+     persisted here, so a new mutation can never forget to save. */
+  useEffect(() => {
+    if (repo.remote || !loaded.current) return;
     const ok = storage.set(ENTRIES_KEY, JSON.stringify(entries));
     if (!ok) setToast("Couldn't save — browser storage is full or blocked.");
-  }, [entries]);
+  }, [entries, repo]);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
@@ -509,20 +944,33 @@ function GratitudeJournal() {
   const updateDraft = (index, value) =>
     setDrafts(prev => prev.map((d, i) => (i === index ? value : d)));
 
-  const save = () => {
+  const save = async () => {
     if (filled.length === 0) return;
 
-    setEntries(prev => [
-      { id: newId(), date: new Date().toISOString(), items: filled },
-      ...prev,
-    ]);
+    const entry = { id: newId(), date: new Date().toISOString(), items: filled };
 
+    try {
+      await repo.add(entry);
+    } catch (error) {
+      flash(describe(error));
+      return;
+    }
+
+    setEntries(prev => [entry, ...prev]);
     setDrafts(Array(SLOTS).fill(''));
     flash('Entry saved.');
     firstField.current?.focus();
   };
 
-  const deleteEntry = id => setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = async id => {
+    try {
+      await repo.remove(id);
+    } catch (error) {
+      flash(describe(error));
+      return;
+    }
+    setEntries(prev => prev.filter(e => e.id !== id));
+  };
 
   /* Ctrl/Cmd+Enter from any textarea saves. */
   const onKeyDown = event => {
@@ -546,7 +994,23 @@ function GratitudeJournal() {
     URL.revokeObjectURL(url);
   };
 
-  /* Adds entries from an exported file, skipping ones already here. */
+  /** Adds entries not already here, then reports how it went. */
+  const absorb = async incoming => {
+    const seen = new Set(entries.map(e => e.id));
+    const fresh = incoming.map(withUuid).filter(e => !seen.has(e.id));
+
+    if (fresh.length === 0) return { added: 0 };
+
+    try {
+      await repo.addMany(fresh);
+    } catch (error) {
+      return { added: 0, error };
+    }
+
+    setEntries(prev => [...prev, ...fresh].sort(byNewest));
+    return { added: fresh.length };
+  };
+
   const importEntries = async event => {
     const file = event.target.files?.[0];
     event.target.value = ''; // so the same file can be picked again
@@ -560,10 +1024,10 @@ function GratitudeJournal() {
       return;
     }
 
-    const seen = new Set(entries.map(e => e.id));
-    const fresh = imported.filter(e => !seen.has(e.id));
+    const { added, error } = await absorb(imported);
+    if (error) return flash(describe(error));
 
-    if (fresh.length === 0) {
+    if (added === 0) {
       flash(
         imported.length === 0
           ? 'No entries found in that file.'
@@ -572,32 +1036,64 @@ function GratitudeJournal() {
       return;
     }
 
-    setEntries(prev => [...prev, ...fresh].sort(byNewest));
-    flash(`Imported ${fresh.length} ${fresh.length === 1 ? 'entry' : 'entries'}.`);
+    flash(`Imported ${added} ${added === 1 ? 'entry' : 'entries'}.`);
   };
 
-  return (
-    <div className="shell">
-      <div className="topbar">
+  const uploadStrays = async () => {
+    const { added, error } = await absorb(strays);
+    if (error) return flash(describe(error));
+
+    storage.set(uploadedKey(userId), '1');
+    storage.remove(ENTRIES_KEY);
+    setStrays([]);
+    flash(added === 0 ? 'Already up to date.' : `Uploaded ${added}.`);
+  };
+
+  const dismissStrays = () => {
+    storage.set(uploadedKey(userId), '1');
+    setStrays([]);
+  };
+
+  if (loading) return <p className="empty">Loading your journal…</p>;
+
+  if (failure) {
+    return (
+      <div className="card">
+        <p className="error">{failure}</p>
         <button
           type="button"
-          className="btn btn-icon"
-          onClick={toggleTheme}
-          aria-pressed={theme === 'dark'}
+          className="btn btn-secondary"
+          onClick={() => window.location.reload()}
         >
-          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+          Try again
         </button>
       </div>
+    );
+  }
 
-      <header className="masthead">
-        <h1>Gratitude Journal</h1>
-        <p>What are you grateful for today?</p>
-      </header>
-
+  return (
+    <>
       {/* Announced to screen readers without stealing focus. */}
       <div role="status" aria-live="polite">
         {toast && <div className="toast">{toast}</div>}
       </div>
+
+      {strays.length > 0 && (
+        <div className="banner">
+          <p>
+            {strays.length} {strays.length === 1 ? 'entry' : 'entries'} saved on
+            this device aren't in your account yet.
+          </p>
+          <div className="banner-actions">
+            <button type="button" className="btn btn-quiet" onClick={uploadStrays}>
+              Upload {strays.length === 1 ? 'it' : 'them'}
+            </button>
+            <button type="button" className="btn btn-icon" onClick={dismissStrays}>
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
 
       <section className="card" aria-label="New entry">
         {drafts.map((value, index) => (
@@ -677,11 +1173,69 @@ function GratitudeJournal() {
         </section>
       )}
 
-      {!storage.persistent && (
+      {!repo.remote && !storage.persistent && (
         <p className="empty">
           Browser storage is unavailable, so entries will only last until you
           close this tab.
         </p>
+      )}
+    </>
+  );
+}
+
+/* ─── App ──────────────────────────────────────────────────────── */
+function GratitudeJournal() {
+  const [theme, toggleTheme] = useTheme();
+  const session = useSession();
+  const [offline, setOffline] = useState(false);
+
+  const user = offline ? null : session?.user ?? null;
+  const guest = user?.is_anonymous === true;
+
+  const signOut = async () => {
+    await cloud.auth.signOut();
+    setOffline(false);
+  };
+
+  return (
+    <div className="shell">
+      <div className="topbar">
+        {user && (
+          <span className="who">
+            {guest ? 'Guest' : user.email}
+          </span>
+        )}
+
+        <button
+          type="button"
+          className="btn btn-icon"
+          onClick={toggleTheme}
+          aria-pressed={theme === 'dark'}
+        >
+          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+        </button>
+
+        {(user || offline) && cloud && (
+          <button type="button" className="btn btn-icon" onClick={signOut}>
+            {offline ? 'Sign in' : 'Sign out'}
+          </button>
+        )}
+      </div>
+
+      <header className="masthead">
+        <h1>Gratitude Journal</h1>
+        <p>What are you grateful for today?</p>
+      </header>
+
+      {guest && <GuestBanner />}
+
+      {session === undefined ? (
+        <p className="empty">One moment…</p>
+      ) : cloud && !user && !offline ? (
+        <AuthScreen onGoOffline={() => setOffline(true)} />
+      ) : (
+        /* Keyed so switching accounts starts from a clean slate. */
+        <Journal key={user?.id ?? 'local'} userId={user?.id ?? null} />
       )}
     </div>
   );
