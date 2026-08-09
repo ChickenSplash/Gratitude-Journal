@@ -315,6 +315,31 @@ describe('the app itself', () => {
     assert.match(await res.text(), /Gratitude Journal/);
   });
 
+  /* The page is split across four files; a rename that misses one of these
+     leaves a blank screen that no API test would notice. */
+  it('serves every file the page asks for', async () => {
+    const shell = await (await fetch(baseUrl)).text();
+    const referenced = [...shell.matchAll(/(?:href|src)="(\/[^"]+)"/g)].map(m => m[1]);
+
+    assert.deepEqual(
+      referenced.sort(),
+      ['/journal-app.jsx', '/journal-core.js', '/styles.css']
+    );
+
+    for (const asset of referenced) {
+      assert.equal((await fetch(baseUrl + asset)).status, 200, `${asset} is missing`);
+    }
+  });
+
+  /* None of these filenames carry a content hash, so a cached copy can end up
+     paired with a newer index.html. */
+  it('lets the browser revalidate every asset', async () => {
+    for (const asset of ['/', '/styles.css', '/journal-core.js', '/journal-app.jsx']) {
+      const res = await fetch(baseUrl + asset);
+      assert.equal(res.headers.get('cache-control'), 'no-cache', asset);
+    }
+  });
+
   it('answers unknown paths with JSON rather than HTML', async () => {
     const res = await fetch(`${baseUrl}/api/nothing-here`);
     assert.equal(res.status, 404);

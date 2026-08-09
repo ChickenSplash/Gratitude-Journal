@@ -14,7 +14,7 @@ Anything written as a guest is moved into the account on sign-in, so nothing typ
 | Server   | Node 22 + Express                                     |
 | Database | SQLite via `better-sqlite3`                           |
 | Auth     | Hand-rolled: scrypt hashes + opaque session cookies   |
-| Frontend | The original single-file React app, same look         |
+| Frontend | React, no build step, same look as the original        |
 
 Two runtime dependencies in total. Password hashing uses Node's built-in `crypto.scryptSync`, so there's no native argon2/bcrypt build to fight with.
 
@@ -45,6 +45,26 @@ Backing it up:
 docker compose exec journal node -e "new (require('better-sqlite3'))('/data/journal.sqlite').backup('/data/backup.sqlite')"
 docker compose cp journal:/data/backup.sqlite ./backup.sqlite
 ```
+
+## Layout
+
+```
+server.js               starts the janitor and listens
+src/app.js              the Express app, wired up but not listening
+src/db.js               schema and prepared statements
+src/auth.js             hashing, session cookies, throttling
+src/routes.js           /api
+public/index.html       the page shell — markup only
+public/styles.css       every style
+public/journal-core.js  API client, localStorage, dates — no React, no JSX
+public/journal-app.jsx  hooks and components
+test/api.test.js        end-to-end tests
+```
+
+`journal-core.js` is plain JavaScript, so it loads as an ordinary script and
+exposes one `Journal` global. Only `journal-app.jsx` goes through Babel. Keeping
+the JSX to a single file is deliberate: without a bundler, splitting further
+would mean several scripts sharing globals in a load order nothing enforces.
 
 ## Environment variables
 
@@ -108,6 +128,11 @@ Guest entries written *after* the upgrade are in memory only, as above.
 
 ## Dropping Babel
 
-`public/index.html` still compiles JSX in the browser via `@babel/standalone`, roughly 300 KB on first load. Now that a real server is involved, you can precompile: move the script body to `public/app.jsx`, build with esbuild, and replace the three CDN tags with one `<script src="/app.js">`.
+`public/journal-app.jsx` is still compiled in the browser by `@babel/standalone`, roughly 300 KB on first load. Now that a real server is involved, you can precompile: build `journal-core.js` and `journal-app.jsx` with esbuild and replace the four script tags with one `<script src="/app.js">`.
 
-Doing that would also drop the runtime dependency on unpkg.com and Google Fonts — right now the app doesn't render at all if either is unreachable.
+That is also the point at which the two front-end files can become however many real ES modules the code wants, since a bundler makes `import` work.
+
+Two other things fall out of it:
+
+- The runtime dependency on unpkg.com disappears. Right now the app renders nothing if unpkg is unreachable.
+- Bundle output can be fingerprinted, at which point `src/app.js` can serve `public/` with a long `max-age` instead of the `no-cache` it uses today.
