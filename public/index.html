@@ -81,9 +81,19 @@
 
   .topbar {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    gap: 4px;
     margin-bottom: 8px;
   }
+
+  .topbar .who {
+    margin-right: auto;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .topbar .who strong { color: var(--text); font-weight: 600; }
 
   .masthead { text-align: center; margin-bottom: 44px; }
 
@@ -109,6 +119,8 @@
     transition: background-color 0.3s ease;
   }
 
+  .card + .card { margin-top: 20px; }
+
   /* ── Form ─────────────────────────────────────────────────────── */
   .field + .field { margin-top: 24px; }
 
@@ -120,26 +132,29 @@
     color: var(--text-muted);
   }
 
-  .field textarea {
+  .field textarea,
+  .field input {
     display: block;
     width: 100%;
-    min-height: 80px;
     padding: 14px 16px;
     font: inherit;
     color: var(--text);
     background: var(--input-bg);
     border: 2px solid var(--border);
     border-radius: 10px;
-    resize: vertical;
     transition: border-color 0.2s ease, background-color 0.3s ease;
   }
 
-  .field textarea:focus {
+  .field textarea { min-height: 80px; resize: vertical; }
+
+  .field textarea:focus,
+  .field input:focus {
     outline: none;
     border-color: var(--accent);
   }
 
-  .field textarea::placeholder { color: var(--text-muted); opacity: 0.7; }
+  .field textarea::placeholder,
+  .field input::placeholder { color: var(--text-muted); opacity: 0.7; }
 
   .hint {
     margin: 20px 0 0;
@@ -199,6 +214,53 @@
   .btn-icon:hover { background: var(--accent-soft); color: var(--text); }
 
   .btn-danger { color: var(--danger); }
+
+  /* ── Auth ─────────────────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    padding: 4px;
+    background: var(--input-bg);
+    border-radius: 10px;
+  }
+
+  .tabs button {
+    flex: 1;
+    padding: 10px;
+    font: inherit;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .tabs button[aria-selected="true"] {
+    color: var(--text);
+    background: var(--card);
+    box-shadow: 0 1px 4px var(--shadow);
+  }
+
+  .form-error {
+    margin: 20px 0 0;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: var(--danger);
+    background: var(--input-bg);
+    border: 1px solid var(--danger);
+    border-radius: 10px;
+  }
+
+  .auth-note {
+    margin: 20px 0 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    text-align: center;
+  }
 
   /* ── Toast ────────────────────────────────────────────────────── */
   .toast {
@@ -299,46 +361,51 @@
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-/* ─── Storage ──────────────────────────────────────────────────────
-   localStorage can throw: disabled cookies, private browsing, quota.
-   Falling back to memory keeps the app usable for the session rather
-   than crashing on mount.                                            */
-const storage = (() => {
-  let backing = null;
-  try {
-    const probe = '__probe__';
-    window.localStorage.setItem(probe, probe);
-    window.localStorage.removeItem(probe);
-    backing = window.localStorage;
-  } catch {
-    backing = null;
-  }
+/* ─── API ──────────────────────────────────────────────────────────
+   The session lives in an HttpOnly cookie, so there is no token for
+   this code to hold — the browser attaches it and JS can't read it. */
+async function request(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    credentials: 'same-origin',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
 
-  const memory = new Map();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+  return data;
+}
 
-  return {
-    persistent: backing !== null,
-    get(key) {
-      try {
-        return backing ? backing.getItem(key) : memory.get(key) ?? null;
-      } catch {
-        return null;
-      }
-    },
-    set(key, value) {
-      try {
-        if (backing) backing.setItem(key, value);
-        else memory.set(key, value);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-  };
-})();
+const api = {
+  me:       ()            => request('GET',    '/api/auth/me'),
+  login:    creds         => request('POST',   '/api/auth/login', creds),
+  register: creds         => request('POST',   '/api/auth/register', creds),
+  logout:   ()            => request('POST',   '/api/auth/logout'),
+  list:     ()            => request('GET',    '/api/entries'),
+  create:   entry         => request('POST',   '/api/entries', entry),
+  bulk:     entries       => request('POST',   '/api/entries/bulk', { entries }),
+  remove:   id            => request('DELETE', `/api/entries/${encodeURIComponent(id)}`),
+};
 
-const ENTRIES_KEY = 'gratitudeEntries';
+/* ─── Local storage ────────────────────────────────────────────────
+   Only the theme is written here now; journal entries live in SQLite
+   for signed-in users and in memory for guests.                      */
 const THEME_KEY = 'gratitudeTheme';
+const LEGACY_ENTRIES_KEY = 'gratitudeEntries';
+
+const local = {
+  get(key) {
+    try { return window.localStorage.getItem(key); } catch { return null; }
+  },
+  set(key, value) {
+    try { window.localStorage.setItem(key, value); } catch { /* ignore */ }
+  },
+  remove(key) {
+    try { window.localStorage.removeItem(key); } catch { /* ignore */ }
+  },
+};
+
 const SLOTS = 3;
 
 /* ─── Helpers ──────────────────────────────────────────────────── */
@@ -346,7 +413,7 @@ const newId = () =>
   window.crypto?.randomUUID?.() ??
   `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
-/** Migrates and validates parsed JSON — from storage or an imported file.
+/** Migrates and validates parsed JSON from an imported file.
  *  Anything malformed is dropped rather than allowed to crash the render. */
 function sanitiseEntries(parsed) {
   if (!Array.isArray(parsed)) return [];
@@ -363,12 +430,16 @@ function sanitiseEntries(parsed) {
 
 const byNewest = (a, b) => new Date(b.date) - new Date(a.date);
 
-function loadEntries() {
-  const raw = storage.get(ENTRIES_KEY);
+/** Entries written by the pre-server version of this app, which kept
+ *  everything in localStorage. They are read back into guest state so an
+ *  upgrade doesn't look like the journal has been wiped, and the key is only
+ *  cleared once the entries are safely in an account. */
+function loadLegacyEntries() {
+  const raw = local.get(LEGACY_ENTRIES_KEY);
   if (!raw) return [];
 
   try {
-    return sanitiseEntries(JSON.parse(raw));
+    return sanitiseEntries(JSON.parse(raw)).sort(byNewest);
   } catch {
     return [];
   }
@@ -400,7 +471,7 @@ function formatDate(isoString) {
 /* ─── Theme ────────────────────────────────────────────────────── */
 function useTheme() {
   const [theme, setTheme] = useState(() => {
-    const stored = storage.get(THEME_KEY);
+    const stored = local.get(THEME_KEY);
     if (stored === 'light' || stored === 'dark') return stored;
     return window.matchMedia?.('(prefers-color-scheme: dark)').matches
       ? 'dark'
@@ -409,7 +480,7 @@ function useTheme() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    storage.set(THEME_KEY, theme);
+    local.set(THEME_KEY, theme);
   }, [theme]);
 
   const toggle = useCallback(
@@ -468,38 +539,157 @@ function EntryCard({ entry, onDelete }) {
   );
 }
 
+/* ─── Auth panel ───────────────────────────────────────────────── */
+function AuthPanel({ mode, setMode, onSubmit, onCancel, pendingCount }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const registering = mode === 'register';
+
+  const submit = async event => {
+    event.preventDefault();
+    setError('');
+    setBusy(true);
+
+    try {
+      await onSubmit(mode, { username, password });
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card" aria-label="Account">
+      <div className="tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!registering}
+          onClick={() => { setMode('login'); setError(''); }}
+        >
+          Sign in
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={registering}
+          onClick={() => { setMode('register'); setError(''); }}
+        >
+          Create account
+        </button>
+      </div>
+
+      <form onSubmit={submit}>
+        <div className="field">
+          <label htmlFor="username">Username</label>
+          <input
+            id="username"
+            name="username"
+            autoComplete="username"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            placeholder="grateful.human"
+            required
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autoComplete={registering ? 'new-password' : 'current-password'}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder={registering ? 'At least 8 characters' : ''}
+            required
+          />
+        </div>
+
+        {error && <p className="form-error" role="alert">{error}</p>}
+
+        <button type="submit" className="btn btn-primary" disabled={busy}>
+          {busy ? 'One moment…' : registering ? 'Create account' : 'Sign in'}
+        </button>
+      </form>
+
+      <p className="auth-note">
+        {pendingCount > 0 && (
+          <>
+            Your {pendingCount} unsaved {pendingCount === 1 ? 'entry' : 'entries'} will
+            move into your account.<br />
+          </>
+        )}
+        <button type="button" className="btn btn-quiet" onClick={onCancel}>
+          Carry on as a guest
+        </button>
+      </p>
+    </section>
+  );
+}
+
 /* ─── App ──────────────────────────────────────────────────────── */
 function GratitudeJournal() {
   const [theme, toggleTheme] = useTheme();
 
+  const [user, setUser] = useState(undefined); // undefined = still checking
+  const [authMode, setAuthMode] = useState(null); // null | 'login' | 'register'
+
   const [drafts, setDrafts] = useState(() => Array(SLOTS).fill(''));
-  const [entries, setEntries] = useState(loadEntries);
+  const [entries, setEntries] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [toast, setToast] = useState('');
+  const [carriedOver, setCarriedOver] = useState(0); // entries from the old version
 
   const toastTimer = useRef(null);
   const firstField = useRef(null);
   const fileInput = useRef(null);
-  const mounted = useRef(false);
 
-  /* Single write path: any change to entries is persisted here, so a new
-     mutation can never forget to save. Skipped on first render. */
-  useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
-    const ok = storage.set(ENTRIES_KEY, JSON.stringify(entries));
-    if (!ok) setToast("Couldn't save — browser storage is full or blocked.");
-  }, [entries]);
-
-  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  const signedIn = Boolean(user);
 
   const flash = useCallback(message => {
     setToast(message);
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2500);
   }, []);
+
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  /** Drops back to guest state, seeded with anything the old version left. */
+  const resetToGuest = useCallback(() => {
+    const legacy = loadLegacyEntries();
+    setEntries(legacy);
+    setCarriedOver(legacy.length);
+  }, []);
+
+  /* Who am I? Runs once; the cookie decides. Guests start from whatever the
+     old localStorage-only version left behind. */
+  useEffect(() => {
+    let live = true;
+
+    (async () => {
+      try {
+        const { user } = await api.me();
+        if (!live) return;
+        setUser(user);
+
+        if (!user) return resetToGuest();
+
+        const { entries: mine } = await api.list();
+        if (live) setEntries(mine);
+      } catch {
+        if (!live) return;
+        setUser(null); // server unreachable — degrade to guest mode
+        resetToGuest();
+      }
+    })();
+
+    return () => { live = false; };
+  }, [resetToGuest]);
 
   const filled = useMemo(
     () => drafts.map(d => d.trim()).filter(Boolean),
@@ -509,20 +699,90 @@ function GratitudeJournal() {
   const updateDraft = (index, value) =>
     setDrafts(prev => prev.map((d, i) => (i === index ? value : d)));
 
-  const save = () => {
+  /* ─── Auth actions ─────────────────────────────────────────────
+     On sign-in, anything written as a guest is handed to the server
+     so nothing typed before logging in is thrown away.             */
+  const authenticate = async (mode, credentials) => {
+    const { user } = mode === 'register'
+      ? await api.register(credentials)
+      : await api.login(credentials);
+
+    const guestEntries = entries;
+    let adopted = 0;
+    let mine;
+
+    /* The session already exists at this point, so a failed hand-off must not
+       leave the UI pretending we're still a guest — fall back to the account's
+       own entries and say what happened. */
+    try {
+      if (guestEntries.length > 0) {
+        ({ added: adopted, entries: mine } = await api.bulk(guestEntries));
+      } else {
+        ({ entries: mine } = await api.list());
+      }
+    } catch {
+      mine = [];
+    }
+
+    if (adopted > 0) {
+      local.remove(LEGACY_ENTRIES_KEY); // safely in an account now
+      setCarriedOver(0);
+    }
+
+    setUser(user);
+    setEntries(mine);
+    setAuthMode(null);
+    flash(
+      adopted > 0
+        ? `Signed in — ${adopted} ${adopted === 1 ? 'entry' : 'entries'} saved to your account.`
+        : `Signed in as ${user.username}.`
+    );
+  };
+
+  const signOut = async () => {
+    try { await api.logout(); } catch { /* the cookie is gone either way */ }
+    setUser(null);
+    resetToGuest();
+    setShowHistory(false);
+    flash('Signed out.');
+  };
+
+  /* ─── Entry actions ────────────────────────────────────────────
+     One branch per storage backend: the server for members, plain
+     React state for guests.                                        */
+  const save = async () => {
     if (filled.length === 0) return;
 
-    setEntries(prev => [
-      { id: newId(), date: new Date().toISOString(), items: filled },
-      ...prev,
-    ]);
+    const entry = { id: newId(), date: new Date().toISOString(), items: filled };
+
+    if (signedIn) {
+      try {
+        const saved = await api.create(entry);
+        setEntries(prev => [saved.entry, ...prev]);
+      } catch (err) {
+        flash(err.message);
+        return;
+      }
+    } else {
+      setEntries(prev => [entry, ...prev]);
+    }
 
     setDrafts(Array(SLOTS).fill(''));
-    flash('Entry saved.');
+    flash(signedIn ? 'Entry saved.' : 'Saved for this visit only.');
     firstField.current?.focus();
   };
 
-  const deleteEntry = id => setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = async id => {
+    if (signedIn) {
+      try {
+        await api.remove(id);
+      } catch (err) {
+        flash(err.message);
+        return;
+      }
+    }
+    setEntries(prev => prev.filter(e => e.id !== id));
+  };
 
   /* Ctrl/Cmd+Enter from any textarea saves. */
   const onKeyDown = event => {
@@ -560,6 +820,21 @@ function GratitudeJournal() {
       return;
     }
 
+    if (signedIn) {
+      try {
+        const { added, entries: fresh } = await api.bulk(imported);
+        setEntries(fresh);
+        flash(
+          added === 0
+            ? 'Nothing new in that file.'
+            : `Imported ${added} ${added === 1 ? 'entry' : 'entries'}.`
+        );
+      } catch (err) {
+        flash(err.message);
+      }
+      return;
+    }
+
     const seen = new Set(entries.map(e => e.id));
     const fresh = imported.filter(e => !seen.has(e.id));
 
@@ -576,9 +851,40 @@ function GratitudeJournal() {
     flash(`Imported ${fresh.length} ${fresh.length === 1 ? 'entry' : 'entries'}.`);
   };
 
+  /* Nothing renders until the session check settles, so the header
+     can't flicker from "Sign in" to a username. */
+  if (user === undefined) {
+    return (
+      <div className="shell">
+        <p className="empty">Opening your journal…</p>
+      </div>
+    );
+  }
+
   return (
     <div className="shell">
       <div className="topbar">
+        <span className="who">
+          {signedIn
+            ? <>Signed in as <strong>{user.username}</strong></>
+            : 'Guest'}
+        </span>
+
+        {signedIn ? (
+          <button type="button" className="btn btn-icon" onClick={signOut}>
+            Sign out
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-icon"
+            onClick={() => setAuthMode(m => (m ? null : 'login'))}
+            aria-expanded={authMode !== null}
+          >
+            Sign in
+          </button>
+        )}
+
         <button
           type="button"
           className="btn btn-icon"
@@ -598,6 +904,16 @@ function GratitudeJournal() {
       <div role="status" aria-live="polite">
         {toast && <div className="toast">{toast}</div>}
       </div>
+
+      {authMode && !signedIn && (
+        <AuthPanel
+          mode={authMode}
+          setMode={setAuthMode}
+          onSubmit={authenticate}
+          onCancel={() => setAuthMode(null)}
+          pendingCount={entries.length}
+        />
+      )}
 
       <section className="card" aria-label="New entry">
         {drafts.map((value, index) => (
@@ -677,10 +993,21 @@ function GratitudeJournal() {
         </section>
       )}
 
-      {!storage.persistent && (
+      {!signedIn && (
         <p className="empty">
-          Browser storage is unavailable, so entries will only last until you
-          close this tab.
+          {carriedOver > 0
+            ? `${carriedOver} ${carriedOver === 1 ? 'entry' : 'entries'} from the
+               earlier version of this app are still on this device. New ones
+               vanish when you close the tab. `
+            : "You're writing as a guest, so entries vanish when you close this tab. "}
+          <button
+            type="button"
+            className="btn btn-quiet"
+            onClick={() => setAuthMode('register')}
+          >
+            Create an account
+          </button>{' '}
+          to keep them.
         </p>
       )}
     </div>

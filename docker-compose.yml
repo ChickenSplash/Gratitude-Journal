@@ -1,0 +1,17 @@
+services:
+  journal:
+    build: .
+    container_name: gratitude-journal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Named volume keeps journal.sqlite out of the image and safe across rebuilds.
+      - journal-data:/data
+    environment:
+      # Set to true only when something is terminating HTTPS in front of this.
+      COOKIE_SECURE: "false"
+      TRUST_PROXY: "false"
+
+volumes:
+  journal-data:
