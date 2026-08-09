@@ -1,0 +1,11 @@
+node_modules/
+
+# The SQLite database and its WAL sidecars.
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+npm-debug.log*
+.DS_Store
+.env
