@@ -19,14 +19,14 @@ export function createApp() {
 
   app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
+  /* Nothing in public/ carries a content hash in its name, so none of it can
+     be cached by URL: an hour-old journal-app.jsx against a fresh index.html
+     is a broken page. `no-cache` still allows a conditional request, so the
+     usual answer is a 304 with no body. Swap this for a long max-age once the
+     build step in the README's "Dropping Babel" gives assets fingerprints. */
   app.use(express.static(PUBLIC_DIR, {
     extensions: ['html'],
-    maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0,
-    setHeaders(res, filePath) {
-      /* The HTML is the app shell — caching it for an hour would leave people
-         on a stale build after a deploy. Fingerprinted assets can still cache. */
-      if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
-    },
+    setHeaders: res => res.setHeader('Cache-Control', 'no-cache'),
   }));
 
   app.use((_req, res) => res.status(404).json({ error: 'Not found.' }));
