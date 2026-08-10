@@ -23,9 +23,11 @@ COPY package.json server.js ./
 COPY src ./src
 COPY public ./public
 
-# The SQLite file lives on a volume so it survives image rebuilds.
+# DATA_DIR is expected to be a mount from the host (see docker-compose.yml), so
+# the SQLite file survives image rebuilds. Deliberately no VOLUME instruction:
+# it would make a bare `docker run` spawn a throwaway anonymous volume here,
+# quietly writing the journal somewhere nobody goes looking.
 RUN mkdir -p /data && chown -R node:node /data /app
-VOLUME ["/data"]
 
 USER node
 EXPOSE 3000
