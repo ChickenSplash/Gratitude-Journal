@@ -5,13 +5,15 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    # The image runs as uid 1000 (the `node` user), so ./data has to be
+    # writable by it. Override on a host where your uid isn't 1000:
+    #   UID=$(id -u) GID=$(id -g) docker compose up -d
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      # Named volume keeps journal.sqlite out of the image and safe across rebuilds.
-      - journal-data:/data
+      # Bind mount, not a named volume: journal.sqlite lives in the project
+      # directory where it can be backed up and inspected without docker cp.
+      - ./data:/data
     environment:
       # Set to true only when something is terminating HTTPS in front of this.
       COOKIE_SECURE: "false"
       TRUST_PROXY: "false"
-
-volumes:
-  journal-data:

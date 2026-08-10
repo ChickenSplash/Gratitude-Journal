@@ -33,18 +33,40 @@ Open <http://localhost:3000>. The database appears at `./data/journal.sqlite`.
 ### With Docker
 
 ```fish
+mkdir -p data
 docker compose up --build -d
 docker compose logs -f
 ```
 
-The database lives in the `journal-data` named volume, so rebuilding the image never wipes it.
+`./data` is bind-mounted to `/data` in the container, so the database is the same
+`./data/journal.sqlite` you get without Docker — in the project directory, not
+sealed inside a named volume. Rebuilding the image never wipes it.
 
-Backing it up:
+Create the directory yourself before the first `up`. If Docker creates it, it
+comes out owned by root and the container — which runs as uid 1000 — can't write
+to it. On a host where your own uid isn't 1000, pass it through:
+
+```fish
+env UID=(id -u) GID=(id -g) docker compose up -d
+```
+
+Backing it up — a plain file copy is *not* enough, because a WAL-mode database
+also has a `-wal` sidecar holding recent writes:
 
 ```fish
 docker compose exec journal node -e "new (require('better-sqlite3'))('/data/journal.sqlite').backup('/data/backup.sqlite')"
-docker compose cp journal:/data/backup.sqlite ./backup.sqlite
 ```
+
+`backup.sqlite` lands next to the database in `./data`, ready to copy off.
+
+### A note on macOS and Windows
+
+The bind mount above is the right default on a Linux host, where it's a native
+mount. On Docker Desktop it goes through VirtioFS/gRPC-FUSE, where SQLite's WAL
+shared-memory file and POSIX advisory locks have a long history of being slow or
+unreliable — expect the occasional `database is locked` or `disk I/O error`.
+If you hit that while developing on a Mac, run the app natively (`npm run dev`,
+same database path) or point `DATA_DIR` at a named volume for the container.
 
 ## Layout
 
@@ -71,7 +93,7 @@ would mean several scripts sharing globals in a load order nothing enforces.
 | Variable        | Default   | Notes                                           |
 |-----------------|-----------|-------------------------------------------------|
 | `PORT`          | `3000`    |                                                 |
-| `DATA_DIR`      | `./data`  | Where `journal.sqlite` is written                |
+| `DATA_DIR`      | `./data`  | Where `journal.sqlite` is written. `/data` in the container, bind-mounted back to `./data` |
 | `COOKIE_SECURE` | `false`   | Set `true` once you're serving over HTTPS        |
 | `TRUST_PROXY`   | `false`   | Set `true` behind nginx/Caddy/Cloudflare Tunnel  |
 
