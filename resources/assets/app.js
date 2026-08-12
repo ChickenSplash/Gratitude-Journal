@@ -11,13 +11,36 @@
   const TOAST_MS = 2500;
 
   /* ─── Theme ──────────────────────────────────────────────────────
-     The stored value is applied by an inline script in <head>, before the
-     first paint. All that's left here is the toggle and its label. */
+     The preference lives in localStorage, and an inline script in <head>
+     applies it before the first paint. The preference — not the attribute
+     currently on <html> — is the source of truth here, because that attribute
+     does not survive a page swap; see the observer below. */
   const readTheme = () => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 
+  function preferredTheme() {
+    let stored = null;
+    try { stored = localStorage.getItem(THEME_KEY); } catch { /* private browsing */ }
+
+    if (stored === 'light' || stored === 'dark') return stored;
+
+    return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
   function applyTheme(theme) {
-    document.documentElement.dataset.theme = theme;
+    // Stored first: syncTheme() reads the preference back, and the observer
+    // below can call it as soon as the attribute changes.
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* private browsing */ }
+    document.documentElement.dataset.theme = theme;
+    labelTheme();
+  }
+
+  function syncTheme() {
+    const theme = preferredTheme();
+
+    if (document.documentElement.dataset.theme !== theme) {
+      document.documentElement.dataset.theme = theme;
+    }
+
     labelTheme();
   }
 
@@ -29,6 +52,21 @@
       button.textContent = dark ? '☀ Light' : '☾ Dark';
     });
   }
+
+  /* Every wire:navigate swap — the auth tabs, and the redirect after signing in
+     — copies the incoming document's <html> attributes over the live ones, so
+     the layout's `data-theme="light"` lands back on the page and the palette
+     resets. The server cannot render anything better, since the preference is
+     only ever known to the browser, so put it back the moment it is overwritten.
+     A MutationObserver runs before the next paint, so the light palette never
+     becomes visible, and it is not tied to any particular swap mechanism —
+     forward navigation, the back button and a restored snapshot all take the
+     same route through <html>. Re-applying the same value is a no-op, so the
+     toggle's own writes cannot loop back through here. */
+  new MutationObserver(syncTheme).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
 
   document.addEventListener('click', event => {
     if (event.target.closest('[data-theme-toggle]')) {
@@ -59,7 +97,7 @@
   window.addEventListener('toast', event => flash(event.detail?.message));
 
   function onPageReady() {
-    labelTheme();
+    syncTheme();
 
     const region = document.querySelector('[data-toast-region]');
     if (region?.dataset.toast) {

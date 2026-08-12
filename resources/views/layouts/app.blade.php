@@ -13,7 +13,12 @@
 <link rel="stylesheet" href="@journalAsset('app.css')">
 
 {{-- Inline and first, so the stored theme is on <html> before anything paints
-     and a dark-mode visitor never sees a flash of the light palette. --}}
+     and a dark-mode visitor never sees a flash of the light palette.
+
+     `data-theme` above is only the no-JavaScript default. It is what the browser
+     is left with after a wire:navigate swap too, since this script is in the
+     head of every page and so is not re-run; app.js re-applies the preference
+     when that happens. --}}
 <script>
   try {
     var stored = localStorage.getItem('gratitudeTheme');
