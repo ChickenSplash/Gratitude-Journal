@@ -8,7 +8,11 @@ set -euo pipefail
 
 DATA_DIR="${DATA_DIR:-/data}"
 KEY_FILE="${DATA_DIR}/app_key"
-DB_FILE="${DB_DATABASE:-${DATA_DIR}/journal.sqlite}"
+DB_FILE="${DB_DATABASE:-${DATA_DIR}/gratitude-journal.sqlite}"
+
+# What the Express version wrote. Its tables share their names with the ones
+# Laravel migrates but not their shape, so the two cannot share a file.
+LEGACY_FILE="${DATA_DIR}/journal.sqlite"
 
 log() { printf '[entrypoint] %s\n' "$*"; }
 
@@ -32,7 +36,7 @@ if [ "$(id -u)" = '0' ]; then
     fi
 
     mkdir -p "${DATA_DIR}"
-    chown www-data:www-data "${DATA_DIR}"
+    chown -R www-data:www-data "${DATA_DIR}"
     chown -R www-data:www-data storage bootstrap/cache
 
     for dir in /var/run/apache2 /var/lock/apache2 /var/log/apache2; do
@@ -65,6 +69,54 @@ if [ -z "${APP_KEY:-}" ]; then
 fi
 
 # ─── Database ──────────────────────────────────────────────────────
+# A journal.sqlite next door is one of two things: this app's own database from
+# before it was renamed, or the Express version's. The second is identified by
+# users.username — this app's users table has name and email instead — and left
+# exactly where it is, because migrating on top of it is what would destroy it.
+#
+# Not by looking for a migrations table: a version of this app that did open the
+# old file got as far as creating an empty one before the first migration hit a
+# users table it hadn't made. Those databases are still the Express version's.
+if [ ! -f "${DB_FILE}" ] && [ -f "${LEGACY_FILE}" ]; then
+    verdict=0
+    as_app php -r '
+        $db = new PDO("sqlite:".$argv[1]);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        $hasTable = function (string $name) use ($db): bool {
+            $sql = "SELECT 1 FROM sqlite_master WHERE type = \"table\" AND name = ".$db->quote($name);
+
+            return (bool) $db->query($sql)->fetch();
+        };
+
+        if ($hasTable("users")) {
+            foreach ($db->query("PRAGMA table_info(users)") as $column) {
+                if ($column["name"] === "username") {
+                    exit(1); // the Express version
+                }
+            }
+        }
+
+        exit($hasTable("migrations") ? 0 : 2); // 0: ours, 2: no idea
+    ' "${LEGACY_FILE}" || verdict=$?
+
+    if [ "${verdict}" = '0' ]; then
+        log "adopting ${LEGACY_FILE} — it is this app's own database under its old name"
+
+        for suffix in '' '-shm' '-wal'; do
+            if [ -f "${LEGACY_FILE}${suffix}" ]; then
+                mv "${LEGACY_FILE}${suffix}" "${DB_FILE}${suffix}"
+            fi
+        done
+    elif [ "${verdict}" = '1' ]; then
+        log "found ${LEGACY_FILE} from the Express version. Leaving it untouched."
+        log "  To bring those entries across: create an account on the site, then run"
+        log "  docker compose exec journal php artisan journal:import-legacy --into=you@example.com"
+    else
+        log "found ${LEGACY_FILE} but don't recognise it. Leaving it untouched."
+    fi
+fi
+
 if [ ! -f "${DB_FILE}" ]; then
     log "creating ${DB_FILE}"
     as_app touch "${DB_FILE}"

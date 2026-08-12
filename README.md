@@ -30,8 +30,13 @@ docker compose up -d --build
 
 That's it — no `.env` to write, no key to generate, no directory to create
 first. On the first boot the container makes `./data`, generates an application
-key into `./data/app_key`, creates `./data/journal.sqlite` and migrates it.
-Open <http://localhost:3000>.
+key into `./data/app_key`, creates `./data/gratitude-journal.sqlite` and
+migrates it. Open <http://localhost:3000>.
+
+**Upgrading from the Express version?** See
+[Bringing the old journal across](#bringing-the-old-journal-across) — the old
+`./data/journal.sqlite` is left where it is, and there's a command to pull its
+entries into your new account.
 
 `./data` is bind-mounted to `/data` in the container, so the database sits in
 the project directory rather than sealed inside a named volume. Rebuilding the
@@ -49,7 +54,7 @@ also has a `-wal` sidecar holding recent writes. `VACUUM INTO` takes a
 consistent snapshot of both:
 
 ```fish
-docker compose exec journal php -r '(new PDO("sqlite:/data/journal.sqlite"))->exec("VACUUM INTO \"/data/backup.sqlite\"");'
+docker compose exec journal php -r '(new PDO("sqlite:/data/gratitude-journal.sqlite"))->exec("VACUUM INTO \"/data/backup.sqlite\"");'
 ```
 
 `backup.sqlite` lands next to the database in `./data`, ready to copy off.
@@ -113,6 +118,7 @@ app/Livewire/AuthPanel.php              sign in / create account
 app/Support/Journal.php                 every read and write against entries
 app/Support/ExportFile.php              parsing an untrusted export file
 app/Http/Controllers/                   logout, import, export, static assets
+app/Console/Commands/                   journal:import-legacy
 resources/views/layouts/app.blade.php   the shell
 resources/assets/app.css                every style
 resources/assets/app.js                 theme toggle, toast timer
@@ -203,6 +209,48 @@ the mailer isn't working yet there's no way past it. Backfill first —
 
 Password reset is in the same position: the `password_reset_tokens` table is
 already migrated, and the flow needs the same working mailer.
+
+## Bringing the old journal across
+
+The Express version wrote `./data/journal.sqlite`. Its tables are called
+`users`, `sessions`, `entries` and `entry_items` — the same names Laravel
+migrates, with different columns underneath — so the two cannot share a file.
+Point this app at that database and the very first migration stops dead on
+`table "users" already exists`.
+
+So it doesn't. This version writes `./data/gratitude-journal.sqlite` and leaves
+the old file exactly where it is. On boot the container says which one it found:
+
+```
+[entrypoint] found /data/journal.sqlite from the Express version. Leaving it untouched.
+```
+
+Both files can then be open at once, which is what makes the entries
+recoverable. Create your account on the site first, then:
+
+```fish
+docker compose exec journal php artisan journal:import-legacy --into=you@example.com
+```
+
+Add `--from=old-username` if the old database holds more than one account; the
+command refuses to guess and lists them. It reuses the same idempotent path the
+file importer does, so running it twice adds nothing the second time.
+
+Accounts themselves don't come across. The old passwords are scrypt hashes in a
+bespoke format and the old accounts had usernames where these have email
+addresses — there's nothing to verify a password against and nowhere to send
+mail. Only the entries move.
+
+Once you're satisfied everything is there, `./data/journal.sqlite` can be
+deleted or archived. Nothing reads it after that.
+
+### If you already hit the error
+
+A run that failed this way got as far as creating an empty `migrations` table in
+the old database before stopping. That's harmless — no data was touched, and the
+import command ignores it. It's worth knowing only because "has a `migrations`
+table" is *not* how the container tells the two databases apart; it looks for
+`users.username`, which only the Express schema has.
 
 ## Guest mode
 
