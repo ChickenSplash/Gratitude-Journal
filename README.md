@@ -3,17 +3,17 @@
 Three lines a day, kept in an account that's yours.
 
 Sign in, write what you're grateful for, and read back everything you've
-written before. Entries live in SQLite, scoped to the user who wrote them.
+written. Entries live in SQLite, scoped to the user who wrote them.
 
 ## Stack
 
-| Piece    | Choice                                            |
-|----------|---------------------------------------------------|
-| Server   | Laravel 13 on PHP 8.4                             |
-| Frontend | Livewire 4 — no bundler, no build step            |
-| Database | SQLite                                            |
-| Auth     | Laravel's own, email + password                   |
-| Styling  | One handwritten stylesheet, same design as before |
+| Piece    | Choice                                     |
+|----------|--------------------------------------------|
+| Server   | Laravel 13 on PHP 8.4                      |
+| Frontend | Livewire 4 — no bundler, no build step     |
+| Database | SQLite                                     |
+| Auth     | Laravel's own, email + password            |
+| Styling  | One handwritten stylesheet, no CSS framework |
 
 There is no Node toolchain. The page loads one CSS file and one small script,
 both served straight out of `resources/assets/`, which is the whole reason a
@@ -80,8 +80,7 @@ If you hit that while developing on a Mac, run it natively as above, or point
 ## Cloudflare Tunnel
 
 The container joins the external `edge` network under the name
-`gratitude-journal`, so the tunnel reaches it at `http://gratitude-journal:3000`
-— the same arrangement the Express version used.
+`gratitude-journal`, so the tunnel reaches it at `http://gratitude-journal:3000`.
 
 ```yaml
 ingress:
@@ -164,17 +163,18 @@ sessions, entries and lines in one statement.
 
 ## Import and export
 
-Export writes the same JSON the Express version did:
+Export writes a flat JSON array, one object per entry:
 
 ```json
 [{ "id": "…", "date": "2026-08-12T09:00:00.000Z", "items": ["…"] }]
 ```
 
-so a file exported from the old app imports into this one unchanged. Both are
-plain HTTP — a link and a form post rather than anything Livewire does — so they
-work with JavaScript off and can be scripted with curl and a session cookie.
-Anything malformed in an imported file is dropped rather than allowed to reach
-the database.
+Import reads that same shape, so a journal round-trips through a file
+unchanged — and because `public_id` is what identifies an entry, importing the
+same file twice adds nothing the second time. Both are plain HTTP — a link and
+a form post rather than anything Livewire does — so they work with JavaScript
+off and can be scripted with curl and a session cookie. Anything malformed in
+an imported file is dropped rather than allowed to reach the database.
 
 ## Email verification
 
@@ -202,18 +202,17 @@ the mailer isn't working yet there's no way past it. Backfill first —
 — so only accounts made after the switch have to verify.
 
 Password reset is in the same position: the `password_reset_tokens` table is
-already migrated, and the flow needs the same working mailer.
+already there, and the flow needs the same working mailer.
 
-## Guest mode
+## Accounts only
 
-The Express version let you write without an account, in memory, and moved
-those entries into the account on sign-in. That's dropped for now, along with
-the `localStorage` migration path that came with it. The flow is sign in first,
-then write.
+There is no anonymous or in-memory mode: sign in first, then write. Every entry
+hangs off a `user_id`, and reads, writes and deletes are all scoped by it.
 
-Nothing in the schema assumes it stays that way: entries hang off a `user_id`,
-and the bulk insert that adopted guest entries is still there as
-`Journal::import()`, which is what the import file uses.
+Nothing in the schema rules out adding a guest flow later. `Journal::import()`
+is already a bulk insert of entries into an account — the same call the import
+endpoint uses — so entries written outside an account would have somewhere to
+land.
 
 ## Security notes
 
@@ -230,9 +229,9 @@ and the bulk insert that adopted guest entries is still there as
 - **Uploads** — imports are capped at 5 MB and 1000 entries, parsed with
   `JSON_THROW_ON_ERROR`, and never touch the filesystem.
 
-## Notes on the port
+## Design notes
 
-A few things worth knowing if you're comparing this to the Express version:
+A few decisions that aren't obvious from reading the files:
 
 - **The prefix is real routing, not a web-server alias.** Livewire's update and
   script endpoints are re-registered under it in `AppServiceProvider`, because
