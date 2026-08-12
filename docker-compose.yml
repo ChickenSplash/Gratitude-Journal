@@ -5,15 +5,26 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
-    user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./data:/data
     environment:
-      COOKIE_SECURE: "true"
-      TRUST_PROXY: "true"
+      # The uid/gid the container writes ./data as. Pass your own on a host
+      # where it isn't 1000: env UID=(id -u) GID=(id -g) docker compose up -d
+      PUID: "${UID:-1000}"
+      PGID: "${GID:-1000}"
+
+      # Everything else has a sensible default baked into the image. Note that
+      # Compose reads ./.env for ${...} interpolation, and that file is also
+      # Laravel's local-development config — so avoid naming variables here
+      # after keys that live in it.
     networks:
       - edge
 
+# Shared with the cloudflared container, which reaches this one by name: point
+# an ingress rule at http://gratitude-journal:3000 and the whole app — pages,
+# stylesheet, Livewire endpoint — answers under /gratitude-journal.
+#
+# Create it once with: docker network create edge
 networks:
   edge:
     external: true
